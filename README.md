@@ -18,7 +18,7 @@ Full Speed Ahead rotates vehicle tokens toward their movement destination, can s
 - Movement sounds are broadcast once by the movement initiator to avoid doubled playback.
 - Player QuickTarget and Vehicle QuickTarget settings for enabling character or vehicle targeting helpers independently.
 - Token-control QuickTarget button for GMs and players.
-- QuickTarget settings gear for GM/player visibility, timeout, double-right-click replacement, and per-character helper chat cards.
+- QuickTarget settings gear for GM/player enablement, timeout, double-right-click replacement, and per-player helper chat-card visibility.
 - Cooperative mode: if a standalone QuickTarget module is active, Full Speed Ahead leaves its bundled QuickTarget handlers idle to avoid duplicate targeting events.
 
 ## Install

@@ -8,6 +8,7 @@ const SHIP_PROFILE_FLAG = "shipProfileName";
 const SHIP_PROFILES_SETTING = "shipProfiles";
 const SCENE_THRUSTER_PROFILES_SETTING = "sceneThrusterProfiles";
 const DISABLED_TARGETING_CARD_ACTORS_SETTING = "disabledTargetingCardActors";
+const DISABLED_TARGETING_CARD_USERS_SETTING = "disabledTargetingCardUsers";
 const STANDALONE_QUICKTARGET_MODULE_IDS = ["quicktarget", "quick-target", "vehicle-quicktarget", "vehicle-quick-target"];
 const DEFAULT_MOVEMENT_SOUND_PATH = "modules/full-speed-ahead/sounds/lockon.ogg";
 const DEFAULT_THRUSTER_COLOR = "#40c7ff";
@@ -286,12 +287,12 @@ class FullSpeedAheadTargetingCardsConfig extends FormApplication {
     }
 
     getData() {
-        const disabledActors = getDisabledTargetingCardActors();
-        const actors = collectTargetingCardActors().map(actor => ({
-            id: actor.id,
-            name: actor.name,
-            type: actor.type,
-            disabled: Boolean(disabledActors[actor.id])
+        const disabledUsers = getDisabledTargetingCardUsers();
+        const users = collectTargetingCardUsers().map(user => ({
+            id: user.id,
+            name: user.name,
+            active: Boolean(user.active),
+            disabled: Boolean(disabledUsers[user.id])
         }));
 
         return {
@@ -303,8 +304,8 @@ class FullSpeedAheadTargetingCardsConfig extends FormApplication {
             replaceDoubleRightClickTargeting: game.settings.get(MODULE_ID, "replaceDoubleRightClickTargeting"),
             autoRemoveTargetingTemplate: game.settings.get(MODULE_ID, "autoRemoveTargetingTemplate"),
             targetingTemplateRemovalSeconds: game.settings.get(MODULE_ID, "targetingTemplateRemovalSeconds"),
-            actors,
-            hasActors: actors.length > 0
+            users,
+            hasUsers: users.length > 0
         };
     }
 
@@ -323,11 +324,11 @@ class FullSpeedAheadTargetingCardsConfig extends FormApplication {
             await game.settings.set(MODULE_ID, key, value);
         }
 
-        const disabledActors = {};
-        for (const actor of collectTargetingCardActors()) {
-            if (Boolean(formData[`disableTargetingCard_${actor.id}`])) disabledActors[actor.id] = true;
+        const disabledUsers = {};
+        for (const user of collectTargetingCardUsers()) {
+            if (Boolean(formData[`disableTargetingCardUser_${user.id}`])) disabledUsers[user.id] = true;
         }
-        await game.settings.set(MODULE_ID, DISABLED_TARGETING_CARD_ACTORS_SETTING, disabledActors);
+        await game.settings.set(MODULE_ID, DISABLED_TARGETING_CARD_USERS_SETTING, disabledUsers);
     }
 }
 
@@ -499,6 +500,14 @@ Hooks.once("init", () => {
         config: false
     });
 
+    registerSetting(DISABLED_TARGETING_CARD_USERS_SETTING, {
+        name: "Disabled QuickTarget Chat Card Players",
+        hint: "Player user IDs that should not receive Full Speed Ahead QuickTarget helper chat cards.",
+        type: Object,
+        default: {},
+        config: false
+    });
+
     registerSetting("renameCreatureCapacity", {
         name: "Change Creature Capacity Label",
         hint: "On Tidy5e vehicle sheets, change the Creature Capacity label to Module Capacity.",
@@ -642,16 +651,16 @@ function registerTargetingSettings() {
     });
 
     registerSetting("enableTargetingSystemGM", {
-        name: "Show QuickTarget for GM",
-        hint: "Places a QuickTarget button on the token controls for the GM. Requires refresh.",
+        name: "Enable QuickTarget for GM",
+        hint: "Enable QuickTarget and its token-control button for the GM. Requires refresh.",
         type: Boolean,
         default: true,
         config: false
     });
 
     registerSetting("enableTargetingSystemPlayers", {
-        name: "Show QuickTarget for Players",
-        hint: "Places a QuickTarget button on the token controls for players. Requires refresh.",
+        name: "Enable QuickTarget for Players",
+        hint: "Enable QuickTarget and its token-control button for non-GM players. Requires refresh.",
         type: Boolean,
         default: true,
         config: false
@@ -1313,13 +1322,13 @@ function getShipProfiles() {
     return foundry.utils.deepClone(game.settings.get(MODULE_ID, SHIP_PROFILES_SETTING) ?? {});
 }
 
-function getDisabledTargetingCardActors() {
-    return foundry.utils.deepClone(game.settings.get(MODULE_ID, DISABLED_TARGETING_CARD_ACTORS_SETTING) ?? {});
+function getDisabledTargetingCardUsers() {
+    return foundry.utils.deepClone(game.settings.get(MODULE_ID, DISABLED_TARGETING_CARD_USERS_SETTING) ?? {});
 }
 
-function collectTargetingCardActors() {
-    return Array.from(game.actors ?? [])
-        .filter(actor => actor?.hasPlayerOwner && ["character", "vehicle"].includes(actor.type))
+function collectTargetingCardUsers() {
+    return Array.from(game.users ?? [])
+        .filter(user => user && !user.isGM)
         .sort((a, b) => a.name.localeCompare(b.name));
 }
 

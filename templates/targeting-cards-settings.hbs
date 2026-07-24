@@ -8,13 +8,13 @@
     <div class="form-group">
         <label>Enable QuickTarget for Players</label>
         <input type="checkbox" name="enableTargetingSystemPlayers" {{checked enableTargetingSystemPlayers}}>
-        <p class="notes">Show the QuickTarget scene-control button for non-GM users.</p>
+        <p class="notes">Enable QuickTarget and its scene-control button for non-GM users.</p>
     </div>
 
     <div class="form-group">
         <label>Enable QuickTarget for GM</label>
         <input type="checkbox" name="enableTargetingSystemGM" {{checked enableTargetingSystemGM}}>
-        <p class="notes">Show the QuickTarget scene-control button for the GM.</p>
+        <p class="notes">Enable QuickTarget and its scene-control button for the GM.</p>
     </div>
 
     <hr>
@@ -54,18 +54,18 @@
 
     <hr>
 
-    {{#if hasActors}}
-    <p class="notes">Checked actors will not receive Full Speed Ahead QuickTarget private helper chat cards when used by players. QuickTarget selection still works.</p>
+    {{#if hasUsers}}
+    <p class="notes">Checked players will not receive private QuickTarget helper chat cards. QuickTarget selection still works.</p>
 
-    {{#each actors}}
+    {{#each users}}
     <div class="form-group">
         <label>Hide Helper Chat Card for {{name}}</label>
-        <input type="checkbox" name="disableTargetingCard_{{id}}" {{checked disabled}}>
-        <p class="notes">{{type}}</p>
+        <input type="checkbox" name="disableTargetingCardUser_{{id}}" {{checked disabled}}>
+        <p class="notes">{{#if active}}Connected{{else}}Offline{{/if}} player</p>
     </div>
     {{/each}}
     {{else}}
-    <p class="notes">No player-owned characters or vehicles were found.</p>
+    <p class="notes">No non-GM player accounts were found.</p>
     {{/if}}
 
     <footer class="sheet-footer flexrow">
