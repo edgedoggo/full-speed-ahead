@@ -277,6 +277,47 @@ class FullSpeedAheadCosmeticsConfig extends FormApplication {
     }
 }
 
+class FullSpeedAheadHoverConfig extends FormApplication {
+    static get defaultOptions() {
+        return foundry.utils.mergeObject(super.defaultOptions, {
+            id: "full-speed-ahead-hover-config",
+            title: "Full Speed Ahead: Vehicle Hover Effect",
+            template: `modules/${MODULE_ID}/templates/hover-settings.hbs`,
+            width: 520,
+            closeOnSubmit: true
+        });
+    }
+
+    getData() {
+        return {
+            hoverOffsetX: game.settings.get(MODULE_ID, "vehicleHoverOffsetX"),
+            hoverOffsetY: game.settings.get(MODULE_ID, "vehicleHoverOffsetY"),
+            hoverSpeed: game.settings.get(MODULE_ID, "vehicleHoverSpeed")
+        };
+    }
+
+    activateListeners(html) {
+        super.activateListeners(html);
+
+        html.find("[data-sync-range]").on("input", event => {
+            const key = event.currentTarget.dataset.syncRange;
+            html.find(`[data-sync-number="${key}"]`).val(event.currentTarget.value);
+        });
+
+        html.find("[data-sync-number]").on("input change", event => {
+            const key = event.currentTarget.dataset.syncNumber;
+            html.find(`[data-sync-range="${key}"]`).val(event.currentTarget.value);
+        });
+    }
+
+    async _updateObject(event, formData) {
+        await game.settings.set(MODULE_ID, "vehicleHoverOffsetX", clampNumber(Number(formData.hoverOffsetX), 0, 50, 2));
+        await game.settings.set(MODULE_ID, "vehicleHoverOffsetY", clampNumber(Number(formData.hoverOffsetY), 0, 50, 3));
+        await game.settings.set(MODULE_ID, "vehicleHoverSpeed", clampNumber(Number(formData.hoverSpeed), 0.1, 5, 1));
+        refreshVehicleHoverEffects();
+    }
+}
+
 class FullSpeedAheadTargetingCardsConfig extends FormApplication {
     static get defaultOptions() {
         return foundry.utils.mergeObject(super.defaultOptions, {
@@ -373,6 +414,15 @@ Hooks.once("init", () => {
         restricted: true
     });
 
+    game.settings.registerMenu(MODULE_ID, "hoverConfig", {
+        name: "Vehicle Hover Effect",
+        label: "Configure Hover",
+        hint: "Configure the global hover offset and speed used by all vehicle tokens.",
+        icon: "fas fa-arrows-alt",
+        type: FullSpeedAheadHoverConfig,
+        restricted: true
+    });
+
     registerSetting("enableShipRotation", {
         name: "Enable Vehicle Rotation When Moved",
         hint: "Automatically face vehicle tokens toward their movement destination. The top of the token is treated as the front.",
@@ -416,6 +466,36 @@ Hooks.once("init", () => {
         hint: "Gently move vehicle token art in place using Full Speed Ahead's built-in hover motion.",
         type: Boolean,
         default: true,
+        onChange: refreshVehicleHoverEffects
+    });
+
+    registerSetting("vehicleHoverOffsetX", {
+        name: "Vehicle Hover X Offset",
+        hint: "Global horizontal hover drift in pixels for all vehicle tokens.",
+        type: Number,
+        default: 2,
+        range: { min: 0, max: 50, step: 0.5 },
+        config: false,
+        onChange: refreshVehicleHoverEffects
+    });
+
+    registerSetting("vehicleHoverOffsetY", {
+        name: "Vehicle Hover Y Offset",
+        hint: "Global vertical hover drift in pixels for all vehicle tokens.",
+        type: Number,
+        default: 3,
+        range: { min: 0, max: 50, step: 0.5 },
+        config: false,
+        onChange: refreshVehicleHoverEffects
+    });
+
+    registerSetting("vehicleHoverSpeed", {
+        name: "Vehicle Hover Speed",
+        hint: "Global hover speed multiplier for all vehicle tokens.",
+        type: Number,
+        default: 1,
+        range: { min: 0.1, max: 5, step: 0.1 },
+        config: false,
         onChange: refreshVehicleHoverEffects
     });
 
@@ -569,8 +649,7 @@ Hooks.on("drawToken", token => {
 });
 
 Hooks.on("controlToken", (token, controlled) => {
-    if (controlled) stopVehicleHoverForTokenId(token.id);
-    else applyVehicleHoverIfNeeded(token);
+    applyVehicleHoverIfNeeded(token);
 });
 
 Hooks.on("deleteToken", tokenDocument => {
@@ -886,7 +965,7 @@ function applyVehicleHoverIfNeeded(token) {
         stopVehicleHoverForTokenId(token.id);
         return;
     }
-    if (token.actor?.type !== "vehicle" || token.document.hidden || token.controlled) {
+    if (token.actor?.type !== "vehicle" || token.document.hidden) {
         stopVehicleHoverForTokenId(token.id);
         return;
     }
@@ -922,13 +1001,13 @@ function updateVehicleHovers() {
     }
 
     for (const token of canvas.tokens?.placeables ?? []) {
-        if (token.actor?.type === "vehicle" && !token.document.hidden && !token.controlled) applyVehicleHoverIfNeeded(token);
+        if (token.actor?.type === "vehicle" && !token.document.hidden) applyVehicleHoverIfNeeded(token);
     }
 
     const now = performance.now();
     for (const [tokenId, state] of activeVehicleHovers) {
         const token = canvas.tokens.get(tokenId);
-        if (!token || token.actor?.type !== "vehicle" || token.document.hidden || token.controlled) {
+        if (!token || token.actor?.type !== "vehicle" || token.document.hidden) {
             stopVehicleHoverState(tokenId, state);
             continue;
         }
@@ -952,10 +1031,10 @@ function updateVehicleHovers() {
             state.baseY = position.y - state.offsetY;
         }
 
-        const size = Math.max(token.w || 0, token.h || 0, canvas.grid?.size || 100);
-        const amplitudeX = Math.max(0.5, size * 0.003);
-        const amplitudeY = Math.max(0.75, size * 0.005);
-        const radians = ((now + state.phase) % VEHICLE_HOVER_LOOP_MS) / VEHICLE_HOVER_LOOP_MS * Math.PI * 2;
+        const amplitudeX = Math.max(0, getSettingNumber("vehicleHoverOffsetX", 2));
+        const amplitudeY = Math.max(0, getSettingNumber("vehicleHoverOffsetY", 3));
+        const speed = Math.max(0.1, getSettingNumber("vehicleHoverSpeed", 1));
+        const radians = (((now * speed) + state.phase) % VEHICLE_HOVER_LOOP_MS) / VEHICLE_HOVER_LOOP_MS * Math.PI * 2;
         const offsetX = Math.sin(radians) * amplitudeX;
         const offsetY = Math.cos(radians) * amplitudeY;
 
