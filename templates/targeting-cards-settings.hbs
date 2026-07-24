@@ -67,12 +67,10 @@
     <div class="form-group">
         <label>Hide Helper Chat Card for Characters — {{name}}</label>
         <input type="checkbox" name="disableCharacterCardUser_{{id}}" {{checked characterDisabled}}>
-        <p class="notes">{{#if active}}Connected{{else}}Offline{{/if}} player</p>
     </div>
     <div class="form-group">
         <label>Hide Helper Chat Card for Vehicles — {{name}}</label>
         <input type="checkbox" name="disableVehicleCardUser_{{id}}" {{checked vehicleDisabled}}>
-        <p class="notes">{{#if active}}Connected{{else}}Offline{{/if}} player</p>
     </div>
     {{/each}}
     {{else}}
