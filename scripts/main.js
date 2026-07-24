@@ -1034,9 +1034,20 @@ function updateVehicleHovers() {
         const amplitudeX = Math.max(0, getSettingNumber("vehicleHoverOffsetX", 2));
         const amplitudeY = Math.max(0, getSettingNumber("vehicleHoverOffsetY", 3));
         const speed = Math.max(0.1, getSettingNumber("vehicleHoverSpeed", 1));
-        const radians = (((now * speed) + state.phase) % VEHICLE_HOVER_LOOP_MS) / VEHICLE_HOVER_LOOP_MS * Math.PI * 2;
-        const offsetX = Math.sin(radians) * amplitudeX;
-        const offsetY = Math.cos(radians) * amplitudeY;
+        const cycle = ((now * speed) + state.phase) / VEHICLE_HOVER_LOOP_MS;
+        const primary = cycle * Math.PI * 2;
+        const secondary = (cycle * 1.73 + 0.19) * Math.PI * 2;
+        const tertiary = (cycle * 0.61 + 0.37) * Math.PI * 2;
+        const offsetX = (
+            Math.sin(primary) * 0.7 +
+            Math.sin(secondary + state.phase * 0.003) * 0.22 +
+            Math.cos(tertiary) * 0.08
+        ) * amplitudeX;
+        const offsetY = (
+            Math.cos(primary * 0.83 + 0.55) * 0.66 +
+            Math.sin(secondary * 0.71 + state.phase * 0.002) * 0.24 +
+            Math.cos(tertiary * 1.37) * 0.1
+        ) * amplitudeY;
 
         position.set(state.baseX + offsetX, state.baseY + offsetY);
         state.offsetX = offsetX;
