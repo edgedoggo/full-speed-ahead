@@ -2,7 +2,7 @@
 
 Vehicle movement helpers for Foundry VTT.
 
-Full Speed Ahead rotates vehicle tokens toward their movement destination, can sequence rotation before movement, plays movement sound effects, adds configurable thruster trails, and includes a targeting helper for ship combat.
+Full Speed Ahead rotates vehicle tokens toward their movement destination, can sequence rotation before movement, plays movement sound effects, adds configurable thruster trails, and bundles QuickTarget for fast combat targeting.
 
 ## Features
 
@@ -16,7 +16,8 @@ Full Speed Ahead rotates vehicle tokens toward their movement destination, can s
 - Name-keyed ship profiles for exhaust color overrides shared by every vehicle with the same name.
 - Vehicle Sheet Cosmetics panel with optional Creature Capacity to Module Capacity and Features to Ship Functions label changes.
 - Movement sounds are broadcast once by the movement initiator to avoid doubled playback.
-- Token-control targeting button for GMs and players.
+- Player QuickTarget and Vehicle QuickTarget settings for enabling character or vehicle targeting helpers independently.
+- Token-control QuickTarget button for GMs and players.
 
 ## Install
 

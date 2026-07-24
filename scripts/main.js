@@ -277,7 +277,7 @@ class FullSpeedAheadTargetingCardsConfig extends FormApplication {
     static get defaultOptions() {
         return foundry.utils.mergeObject(super.defaultOptions, {
             id: "full-speed-ahead-targeting-cards-config",
-            title: "Full Speed Ahead: Targeting Chat Cards",
+            title: "Full Speed Ahead: QuickTarget Chat Cards",
             template: `modules/${MODULE_ID}/templates/targeting-cards-settings.hbs`,
             width: 560,
             closeOnSubmit: true
@@ -330,9 +330,9 @@ Hooks.once("init", () => {
     });
 
     game.settings.registerMenu(MODULE_ID, "targetingCardsConfig", {
-        name: "Targeting Chat Card Options",
-        label: "Configure Targeting Cards",
-        hint: "Disable private Full Speed Ahead attack option cards for selected player characters.",
+        name: "QuickTarget Chat Card Options",
+        label: "Configure QuickTarget Cards",
+        hint: "Disable private Player QuickTarget and Vehicle QuickTarget attack option cards for selected player characters.",
         icon: "fas fa-comment-slash",
         type: FullSpeedAheadTargetingCardsConfig,
         restricted: true
@@ -469,8 +469,8 @@ Hooks.once("init", () => {
     });
 
     registerSetting(DISABLED_TARGETING_CARD_ACTORS_SETTING, {
-        name: "Disabled Targeting Chat Card Actors",
-        hint: "Actor IDs whose players should not receive Full Speed Ahead attack option chat cards.",
+        name: "Disabled QuickTarget Chat Card Actors",
+        hint: "Actor IDs whose players should not receive Full Speed Ahead QuickTarget attack option chat cards.",
         type: Object,
         default: {},
         config: false
@@ -595,43 +595,57 @@ function registerSetting(key, data) {
 
 function registerTargetingSettings() {
     registerSetting("enableTargetingSystem", {
-        name: "Enable Targeting System",
-        hint: "Show range and targeting helpers for ship and actor combat. Requires refresh.",
+        name: "Enable QuickTarget",
+        hint: "Master switch for Full Speed Ahead's bundled Player QuickTarget and Vehicle QuickTarget tools. Requires refresh.",
+        type: Boolean,
+        default: true
+    });
+
+    registerSetting("enablePlayerQuickTarget", {
+        name: "Player QuickTarget",
+        hint: "Enable QuickTarget range overlays, T-key targeting, and private attack helpers for character and non-vehicle actor tokens.",
+        type: Boolean,
+        default: true
+    });
+
+    registerSetting("enableVehicleQuickTarget", {
+        name: "Vehicle QuickTarget",
+        hint: "Enable QuickTarget range overlays, T-key targeting, and private attack helpers for vehicle tokens.",
         type: Boolean,
         default: true
     });
 
     registerSetting("enableTargetingSystemGM", {
-        name: "Show Targeting System for GM",
-        hint: "Places a targeting system button on the token controls for the GM. Requires refresh.",
+        name: "Show QuickTarget for GM",
+        hint: "Places a QuickTarget button on the token controls for the GM. Requires refresh.",
         type: Boolean,
         default: true
     });
 
     registerSetting("enableTargetingSystemPlayers", {
-        name: "Show Targeting System for Players",
-        hint: "Places a targeting system button on the token controls for players. Requires refresh.",
+        name: "Show QuickTarget for Players",
+        hint: "Places a QuickTarget button on the token controls for players. Requires refresh.",
         type: Boolean,
         default: true
     });
 
     registerSetting("replaceDoubleRightClickTargeting", {
-        name: "Replace Double Right-Click Targeting",
-        hint: "Use Full Speed Ahead targeting and private attack helpers when double right-clicking a token. Leave unchecked to keep Foundry's default targeting behavior.",
+        name: "Replace Double Right-Click with QuickTarget",
+        hint: "Use Player QuickTarget or Vehicle QuickTarget and private attack helpers when double right-clicking a token. Leave unchecked to keep Foundry's default targeting behavior.",
         type: Boolean,
         default: false
     });
 
     registerSetting("autoRemoveTargetingTemplate", {
-        name: "Automatically Remove Targeting Template",
-        hint: "Automatically clear targeting labels and range templates after the configured number of seconds.",
+        name: "Automatically Remove QuickTarget Template",
+        hint: "Automatically clear QuickTarget labels and range templates after the configured number of seconds.",
         type: Boolean,
         default: true
     });
 
     registerSetting("targetingTemplateRemovalSeconds", {
-        name: "Targeting Template Removal Seconds",
-        hint: "How many seconds targeting labels and range templates remain visible when automatic removal is enabled.",
+        name: "QuickTarget Template Removal Seconds",
+        hint: "How many seconds QuickTarget labels and range templates remain visible when automatic removal is enabled.",
         type: Number,
         default: 10,
         range: { min: 1, max: 120, step: 1 }
@@ -641,6 +655,7 @@ function registerTargetingSettings() {
 function addTargetingSystemButton() {
     Hooks.on("getSceneControlButtons", controls => {
         if (!game.settings.get(MODULE_ID, "enableTargetingSystem")) return;
+        if (!game.settings.get(MODULE_ID, "enablePlayerQuickTarget") && !game.settings.get(MODULE_ID, "enableVehicleQuickTarget")) return;
 
         const showForGM = game.settings.get(MODULE_ID, "enableTargetingSystemGM") && game.user.isGM;
         const showForPlayers = game.settings.get(MODULE_ID, "enableTargetingSystemPlayers") && !game.user.isGM;
@@ -651,13 +666,13 @@ function addTargetingSystemButton() {
 
         const targetingTool = {
             name: "highlight-weapon-range",
-            title: "Use Targeting System",
+            title: "Use QuickTarget",
             icon: "fas fa-crosshairs",
             button: true,
             onClick: () => {
                 const api = game.modules.get(MODULE_ID)?.api;
                 if (api?.highlightWeaponRange) api.highlightWeaponRange();
-                else ui.notifications.warn("Full Speed Ahead targeting is not ready yet.");
+                else ui.notifications.warn("Full Speed Ahead QuickTarget is not ready yet.");
             }
         };
 

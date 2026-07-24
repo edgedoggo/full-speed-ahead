@@ -1,17 +1,21 @@
-// targetingsystem.js: Range overlays, the T-key targeting override, and private attack cards.
+// targetingsystem.js: QuickTarget range overlays, the T-key override, and private attack cards.
 
 const MODULE_ID = "full-speed-ahead";
 const DISABLED_TARGETING_CARD_ACTORS_SETTING = "disabledTargetingCardActors";
 
 export class TargetingSystem {
     static async highlightWeaponRange(sourceToken = null) {
-        if (!game.settings.get(MODULE_ID, "enableTargetingSystem")) {
-            console.log("Targeting System is disabled in settings. Exiting highlightWeaponRange.");
+        if (!isAnyQuickTargetEnabled()) {
+            console.log("QuickTarget is disabled in settings. Exiting highlightWeaponRange.");
             return;
         }
 
         const selectedToken = sourceToken ?? getActingToken();
         if (!selectedToken) return;
+        if (!isQuickTargetEnabledForSource(selectedToken)) {
+            ui.notifications.warn(`${getQuickTargetFeatureName(selectedToken)} is disabled in Full Speed Ahead settings.`);
+            return;
+        }
 
         const actor = selectedToken.actor;
         if (!actor) {
@@ -177,7 +181,7 @@ export class TargetingSystem {
 
     static async handleTargetShortcut(event) {
         if (!isTargetShortcutEvent(event)) return;
-        if (!game.settings.get(MODULE_ID, "enableTargetingSystem")) return;
+        if (!isAnyQuickTargetEnabled()) return;
         if (!canvas?.ready || !canvas.tokens) return;
 
         event.preventDefault();
@@ -186,6 +190,10 @@ export class TargetingSystem {
 
         const sourceToken = getActingToken();
         if (!sourceToken) return;
+        if (!isQuickTargetEnabledForSource(sourceToken)) {
+            ui.notifications.warn(`${getQuickTargetFeatureName(sourceToken)} is disabled in Full Speed Ahead settings.`);
+            return;
+        }
 
         const hoveredToken = getHoveredTargetToken(sourceToken);
         if (!hoveredToken) {
@@ -199,7 +207,7 @@ export class TargetingSystem {
     }
 
     static async handleDoubleRightClickTarget(targetToken, event) {
-        if (!game.settings.get(MODULE_ID, "enableTargetingSystem")) return false;
+        if (!isAnyQuickTargetEnabled()) return false;
         if (!game.settings.get(MODULE_ID, "replaceDoubleRightClickTargeting")) return false;
         if (!canvas?.ready || !targetToken?.actor || targetToken.document.hidden) return false;
 
@@ -207,6 +215,10 @@ export class TargetingSystem {
 
         const sourceToken = getActingToken();
         if (!sourceToken) return true;
+        if (!isQuickTargetEnabledForSource(sourceToken)) {
+            ui.notifications.warn(`${getQuickTargetFeatureName(sourceToken)} is disabled in Full Speed Ahead settings.`);
+            return true;
+        }
 
         if (sourceToken.id === targetToken.id) {
             ui.notifications.warn("Please double right-click a target, not the attacking character.");
@@ -221,8 +233,8 @@ export class TargetingSystem {
 
     static async targetTokenAndShowAttacks(sourceToken, targetToken, validAttacks, distance) {
         setOnlyTarget(targetToken);
-        ui.notifications.warn(`[Targeting] ${targetToken.name} has been targeted.`);
-        console.log(`[Targeting System] ${targetToken.name} has been targeted.`);
+        ui.notifications.warn(`[QuickTarget] ${targetToken.name} has been targeted.`);
+        console.log(`[QuickTarget] ${targetToken.name} has been targeted.`);
         AudioHelper.play({ src: "/modules/full-speed-ahead/sounds/lockon.ogg", volume: 0.3, autoplay: true, loop: false });
         await TargetingSystem.createAttackCard(sourceToken, targetToken, validAttacks, distance);
     }
@@ -352,6 +364,27 @@ function getActorAttacks(actor) {
     return { weapons, spells };
 }
 
+function isAnyQuickTargetEnabled() {
+    return Boolean(
+        game.settings.get(MODULE_ID, "enableTargetingSystem") &&
+        (
+            game.settings.get(MODULE_ID, "enablePlayerQuickTarget") ||
+            game.settings.get(MODULE_ID, "enableVehicleQuickTarget")
+        )
+    );
+}
+
+function isQuickTargetEnabledForSource(sourceToken) {
+    if (!game.settings.get(MODULE_ID, "enableTargetingSystem")) return false;
+    return sourceToken?.actor?.type === "vehicle"
+        ? game.settings.get(MODULE_ID, "enableVehicleQuickTarget")
+        : game.settings.get(MODULE_ID, "enablePlayerQuickTarget");
+}
+
+function getQuickTargetFeatureName(sourceToken) {
+    return sourceToken?.actor?.type === "vehicle" ? "Vehicle QuickTarget" : "Player QuickTarget";
+}
+
 function getTargetingData(sourceToken, targetToken, weapons, spells) {
     const distance = canvas.grid.measureDistances([{ ray: new Ray(sourceToken.center, targetToken.center) }], { gridSpaces: true })[0];
     const validWeapons = weapons.filter(weapon => distance <= getAttackRanges(weapon).long);
@@ -468,7 +501,7 @@ function patchDoubleRightClickTargeting() {
     const original = Token.prototype._onClickRight2;
     Token.prototype._onClickRight2 = function(event) {
         if (
-            !game.settings.get(MODULE_ID, "enableTargetingSystem") ||
+            !isAnyQuickTargetEnabled() ||
             !game.settings.get(MODULE_ID, "replaceDoubleRightClickTargeting")
         ) {
             return original.call(this, event);
@@ -517,5 +550,5 @@ Hooks.on("ready", () => {
         html.find(".full-speed-ahead-roll-attack").on("click", event => TargetingSystem.rollAttackFromChat(event));
     });
 
-    console.log("Targeting System has been initialized");
+    console.log("QuickTarget has been initialized");
 });
