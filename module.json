@@ -2,7 +2,7 @@
     "id": "full-speed-ahead",
     "name": "full-speed-ahead",
     "title": "Full Speed Ahead",
-    "description": "Vehicle movement helpers for Foundry VTT: rotate vehicle tokens before they move, add movement sound effects, draw configurable thruster trails, and bundle Player QuickTarget and Vehicle QuickTarget for fast combat targeting.",
+    "description": "Vehicle movement helpers for Foundry VTT: rotate vehicle tokens before they move, add movement sound effects, draw configurable thruster trails, and bundle independent non-vehicle and vehicle QuickTarget controls.",
     "authors": [
         {
             "name": "OpenKyle",
@@ -10,7 +10,7 @@
             "url": "https://github.com/openkyle/full-speed-ahead"
         }
     ],
-    "version": "1.0.44",
+    "version": "1.0.45",
     "compatibility": {
         "minimum": "10",
         "verified": "11.312"

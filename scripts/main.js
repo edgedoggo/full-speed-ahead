@@ -9,6 +9,8 @@ const SHIP_PROFILES_SETTING = "shipProfiles";
 const SCENE_THRUSTER_PROFILES_SETTING = "sceneThrusterProfiles";
 const DISABLED_TARGETING_CARD_ACTORS_SETTING = "disabledTargetingCardActors";
 const DISABLED_TARGETING_CARD_USERS_SETTING = "disabledTargetingCardUsers";
+const DISABLED_CHARACTER_CARD_USERS_SETTING = "disabledCharacterTargetingCardUsers";
+const DISABLED_VEHICLE_CARD_USERS_SETTING = "disabledVehicleTargetingCardUsers";
 const STANDALONE_QUICKTARGET_MODULE_IDS = ["quicktarget", "quick-target", "vehicle-quicktarget", "vehicle-quick-target"];
 const DEFAULT_MOVEMENT_SOUND_PATH = "modules/full-speed-ahead/sounds/lockon.ogg";
 const DEFAULT_THRUSTER_COLOR = "#40c7ff";
@@ -287,20 +289,24 @@ class FullSpeedAheadTargetingCardsConfig extends FormApplication {
     }
 
     getData() {
-        const disabledUsers = getDisabledTargetingCardUsers();
+        const legacyDisabledUsers = getDisabledTargetingCardUsers();
+        const disabledCharacterUsers = getDisabledCharacterCardUsers();
+        const disabledVehicleUsers = getDisabledVehicleCardUsers();
         const users = collectTargetingCardUsers().map(user => ({
             id: user.id,
             name: user.name,
             active: Boolean(user.active),
-            disabled: Boolean(disabledUsers[user.id])
+            characterDisabled: Boolean(disabledCharacterUsers[user.id] ?? legacyDisabledUsers[user.id]),
+            vehicleDisabled: Boolean(disabledVehicleUsers[user.id] ?? legacyDisabledUsers[user.id])
         }));
 
         return {
             enableTargetingSystem: game.settings.get(MODULE_ID, "enableTargetingSystem"),
             enableTargetingSystemPlayers: game.settings.get(MODULE_ID, "enableTargetingSystemPlayers"),
             enableTargetingSystemGM: game.settings.get(MODULE_ID, "enableTargetingSystemGM"),
-            enablePlayerQuickTarget: game.settings.get(MODULE_ID, "enablePlayerQuickTarget"),
             enableVehicleQuickTarget: game.settings.get(MODULE_ID, "enableVehicleQuickTarget"),
+            enableVehicleQuickTargetPlayers: game.settings.get(MODULE_ID, "enableVehicleQuickTargetPlayers"),
+            enableVehicleQuickTargetGM: game.settings.get(MODULE_ID, "enableVehicleQuickTargetGM"),
             replaceDoubleRightClickTargeting: game.settings.get(MODULE_ID, "replaceDoubleRightClickTargeting"),
             autoRemoveTargetingTemplate: game.settings.get(MODULE_ID, "autoRemoveTargetingTemplate"),
             targetingTemplateRemovalSeconds: game.settings.get(MODULE_ID, "targetingTemplateRemovalSeconds"),
@@ -314,8 +320,9 @@ class FullSpeedAheadTargetingCardsConfig extends FormApplication {
             enableTargetingSystem: Boolean(formData.enableTargetingSystem),
             enableTargetingSystemPlayers: Boolean(formData.enableTargetingSystemPlayers),
             enableTargetingSystemGM: Boolean(formData.enableTargetingSystemGM),
-            enablePlayerQuickTarget: Boolean(formData.enablePlayerQuickTarget),
             enableVehicleQuickTarget: Boolean(formData.enableVehicleQuickTarget),
+            enableVehicleQuickTargetPlayers: Boolean(formData.enableVehicleQuickTargetPlayers),
+            enableVehicleQuickTargetGM: Boolean(formData.enableVehicleQuickTargetGM),
             replaceDoubleRightClickTargeting: Boolean(formData.replaceDoubleRightClickTargeting),
             autoRemoveTargetingTemplate: Boolean(formData.autoRemoveTargetingTemplate),
             targetingTemplateRemovalSeconds: clampNumber(Number(formData.targetingTemplateRemovalSeconds), 1, 120, 10)
@@ -324,11 +331,15 @@ class FullSpeedAheadTargetingCardsConfig extends FormApplication {
             await game.settings.set(MODULE_ID, key, value);
         }
 
-        const disabledUsers = {};
+        const disabledCharacterUsers = {};
+        const disabledVehicleUsers = {};
         for (const user of collectTargetingCardUsers()) {
-            if (Boolean(formData[`disableTargetingCardUser_${user.id}`])) disabledUsers[user.id] = true;
+            if (Boolean(formData[`disableCharacterCardUser_${user.id}`])) disabledCharacterUsers[user.id] = true;
+            if (Boolean(formData[`disableVehicleCardUser_${user.id}`])) disabledVehicleUsers[user.id] = true;
         }
-        await game.settings.set(MODULE_ID, DISABLED_TARGETING_CARD_USERS_SETTING, disabledUsers);
+        await game.settings.set(MODULE_ID, DISABLED_CHARACTER_CARD_USERS_SETTING, disabledCharacterUsers);
+        await game.settings.set(MODULE_ID, DISABLED_VEHICLE_CARD_USERS_SETTING, disabledVehicleUsers);
+        await game.settings.set(MODULE_ID, DISABLED_TARGETING_CARD_USERS_SETTING, {});
     }
 }
 
@@ -356,7 +367,7 @@ Hooks.once("init", () => {
     game.settings.registerMenu(MODULE_ID, "targetingCardsConfig", {
         name: "QuickTarget Settings",
         label: "Open QuickTarget Settings",
-        hint: "Configure Player QuickTarget, Vehicle QuickTarget, timeout behavior, and private helper chat cards.",
+        hint: "Configure non-vehicle and vehicle QuickTarget access, timeout behavior, and private helper chat cards.",
         icon: "fas fa-crosshairs",
         type: FullSpeedAheadTargetingCardsConfig,
         restricted: true
@@ -508,6 +519,22 @@ Hooks.once("init", () => {
         config: false
     });
 
+    registerSetting(DISABLED_CHARACTER_CARD_USERS_SETTING, {
+        name: "Hidden Character QuickTarget Cards",
+        hint: "Player user IDs that should not receive helper cards for non-vehicle QuickTarget interactions.",
+        type: Object,
+        default: {},
+        config: false
+    });
+
+    registerSetting(DISABLED_VEHICLE_CARD_USERS_SETTING, {
+        name: "Hidden Vehicle QuickTarget Cards",
+        hint: "Player user IDs that should not receive helper cards for vehicle QuickTarget interactions.",
+        type: Object,
+        default: {},
+        config: false
+    });
+
     registerSetting("renameCreatureCapacity", {
         name: "Change Creature Capacity Label",
         hint: "On Tidy5e vehicle sheets, change the Creature Capacity label to Module Capacity.",
@@ -628,15 +655,15 @@ function registerSetting(key, data) {
 function registerTargetingSettings() {
     registerSetting("enableTargetingSystem", {
         name: "Enable QuickTarget",
-        hint: "Master switch for Full Speed Ahead's bundled Player QuickTarget and Vehicle QuickTarget tools. Requires refresh.",
+        hint: "Enable QuickTarget for character and other non-vehicle interactions. Vehicle QuickTarget is controlled separately. Requires refresh.",
         type: Boolean,
         default: true,
         config: false
     });
 
     registerSetting("enablePlayerQuickTarget", {
-        name: "Player QuickTarget",
-        hint: "Enable QuickTarget range overlays, T-key targeting, and private attack helpers for character and non-vehicle actor tokens.",
+        name: "Deprecated Player QuickTarget",
+        hint: "Legacy setting retained for world-data compatibility. Non-vehicle QuickTarget now uses Enable QuickTarget.",
         type: Boolean,
         default: true,
         config: false
@@ -652,7 +679,7 @@ function registerTargetingSettings() {
 
     registerSetting("enableTargetingSystemGM", {
         name: "Enable QuickTarget for GM",
-        hint: "Enable QuickTarget and its token-control button for the GM. Requires refresh.",
+        hint: "Enable non-vehicle QuickTarget and its token-control button for the GM. Requires refresh.",
         type: Boolean,
         default: true,
         config: false
@@ -660,7 +687,23 @@ function registerTargetingSettings() {
 
     registerSetting("enableTargetingSystemPlayers", {
         name: "Enable QuickTarget for Players",
-        hint: "Enable QuickTarget and its token-control button for non-GM players. Requires refresh.",
+        hint: "Enable non-vehicle QuickTarget and its token-control button for non-GM players. Requires refresh.",
+        type: Boolean,
+        default: true,
+        config: false
+    });
+
+    registerSetting("enableVehicleQuickTargetPlayers", {
+        name: "Vehicle QuickTarget for Players",
+        hint: "Enable vehicle QuickTarget for non-GM players. Requires refresh.",
+        type: Boolean,
+        default: true,
+        config: false
+    });
+
+    registerSetting("enableVehicleQuickTargetGM", {
+        name: "Vehicle QuickTarget for GM",
+        hint: "Enable vehicle QuickTarget for the GM. Requires refresh.",
         type: Boolean,
         default: true,
         config: false
@@ -668,7 +711,7 @@ function registerTargetingSettings() {
 
     registerSetting("replaceDoubleRightClickTargeting", {
         name: "Replace Double Right-Click with QuickTarget",
-        hint: "Use Player QuickTarget or Vehicle QuickTarget and private attack helpers when double right-clicking a token. Leave unchecked to keep Foundry's default targeting behavior.",
+        hint: "Use non-vehicle or Vehicle QuickTarget and private attack helpers when double right-clicking a token. Leave unchecked to keep Foundry's default targeting behavior.",
         type: Boolean,
         default: false,
         config: false
@@ -695,12 +738,17 @@ function registerTargetingSettings() {
 function addTargetingSystemButton() {
     Hooks.on("getSceneControlButtons", controls => {
         if (isStandaloneQuickTargetActive()) return;
-        if (!game.settings.get(MODULE_ID, "enableTargetingSystem")) return;
-        if (!game.settings.get(MODULE_ID, "enablePlayerQuickTarget") && !game.settings.get(MODULE_ID, "enableVehicleQuickTarget")) return;
-
-        const showForGM = game.settings.get(MODULE_ID, "enableTargetingSystemGM") && game.user.isGM;
-        const showForPlayers = game.settings.get(MODULE_ID, "enableTargetingSystemPlayers") && !game.user.isGM;
-        if (!showForGM && !showForPlayers) return;
+        const nonVehicleEnabled = game.settings.get(MODULE_ID, "enableTargetingSystem") && (
+            game.user.isGM
+                ? game.settings.get(MODULE_ID, "enableTargetingSystemGM")
+                : game.settings.get(MODULE_ID, "enableTargetingSystemPlayers")
+        );
+        const vehicleEnabled = game.settings.get(MODULE_ID, "enableVehicleQuickTarget") && (
+            game.user.isGM
+                ? game.settings.get(MODULE_ID, "enableVehicleQuickTargetGM")
+                : game.settings.get(MODULE_ID, "enableVehicleQuickTargetPlayers")
+        );
+        if (!nonVehicleEnabled && !vehicleEnabled) return;
 
         const tokenControl = getTokenSceneControl(controls);
         if (!tokenControl) return;
@@ -1324,6 +1372,14 @@ function getShipProfiles() {
 
 function getDisabledTargetingCardUsers() {
     return foundry.utils.deepClone(game.settings.get(MODULE_ID, DISABLED_TARGETING_CARD_USERS_SETTING) ?? {});
+}
+
+function getDisabledCharacterCardUsers() {
+    return foundry.utils.deepClone(game.settings.get(MODULE_ID, DISABLED_CHARACTER_CARD_USERS_SETTING) ?? {});
+}
+
+function getDisabledVehicleCardUsers() {
+    return foundry.utils.deepClone(game.settings.get(MODULE_ID, DISABLED_VEHICLE_CARD_USERS_SETTING) ?? {});
 }
 
 function collectTargetingCardUsers() {

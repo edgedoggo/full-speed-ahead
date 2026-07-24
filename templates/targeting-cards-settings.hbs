@@ -2,39 +2,45 @@
     <div class="form-group">
         <label>Enable QuickTarget</label>
         <input type="checkbox" name="enableTargetingSystem" {{checked enableTargetingSystem}}>
-        <p class="notes">Master switch for Full Speed Ahead's bundled Player QuickTarget and Vehicle QuickTarget tools.</p>
+        <p class="notes">Enable QuickTarget for characters and other non-vehicle interactions. Vehicle QuickTarget is controlled separately below.</p>
     </div>
 
     <div class="form-group">
         <label>Enable QuickTarget for Players</label>
         <input type="checkbox" name="enableTargetingSystemPlayers" {{checked enableTargetingSystemPlayers}}>
-        <p class="notes">Enable QuickTarget and its scene-control button for non-GM users.</p>
+        <p class="notes">Enable non-vehicle QuickTarget and its scene-control button for non-GM users.</p>
     </div>
 
     <div class="form-group">
         <label>Enable QuickTarget for GM</label>
         <input type="checkbox" name="enableTargetingSystemGM" {{checked enableTargetingSystemGM}}>
-        <p class="notes">Enable QuickTarget and its scene-control button for the GM.</p>
+        <p class="notes">Enable non-vehicle QuickTarget and its scene-control button for the GM.</p>
     </div>
 
     <hr>
 
     <div class="form-group">
-        <label>Player QuickTarget</label>
-        <input type="checkbox" name="enablePlayerQuickTarget" {{checked enablePlayerQuickTarget}}>
-        <p class="notes">Enable QuickTarget for character and non-vehicle actor tokens.</p>
+        <label>Vehicle QuickTarget</label>
+        <input type="checkbox" name="enableVehicleQuickTarget" {{checked enableVehicleQuickTarget}}>
+        <p class="notes">Master switch for QuickTarget on vehicle tokens.</p>
     </div>
 
     <div class="form-group">
-        <label>Vehicle QuickTarget</label>
-        <input type="checkbox" name="enableVehicleQuickTarget" {{checked enableVehicleQuickTarget}}>
-        <p class="notes">Enable QuickTarget for vehicle tokens.</p>
+        <label>Vehicle QuickTarget for Players</label>
+        <input type="checkbox" name="enableVehicleQuickTargetPlayers" {{checked enableVehicleQuickTargetPlayers}}>
+        <p class="notes">Enable vehicle QuickTarget for non-GM players.</p>
+    </div>
+
+    <div class="form-group">
+        <label>Vehicle QuickTarget for GM</label>
+        <input type="checkbox" name="enableVehicleQuickTargetGM" {{checked enableVehicleQuickTargetGM}}>
+        <p class="notes">Enable vehicle QuickTarget for the GM.</p>
     </div>
 
     <div class="form-group">
         <label>Replace Double Right-Click Targeting</label>
         <input type="checkbox" name="replaceDoubleRightClickTargeting" {{checked replaceDoubleRightClickTargeting}}>
-        <p class="notes">Use QuickTarget when double right-clicking a token. Leave unchecked to keep Foundry's default targeting behavior.</p>
+        <p class="notes">Use the applicable non-vehicle or vehicle QuickTarget settings when double right-clicking a token. Leave unchecked to keep Foundry's default targeting behavior.</p>
     </div>
 
     <hr>
@@ -55,12 +61,17 @@
     <hr>
 
     {{#if hasUsers}}
-    <p class="notes">Checked players will not receive private QuickTarget helper chat cards. QuickTarget selection still works.</p>
+    <p class="notes">Character and vehicle helper chat cards can be hidden independently for each player. QuickTarget selection still works.</p>
 
     {{#each users}}
     <div class="form-group">
-        <label>Hide Helper Chat Card for {{name}}</label>
-        <input type="checkbox" name="disableTargetingCardUser_{{id}}" {{checked disabled}}>
+        <label>Hide Helper Chat Card for Characters — {{name}}</label>
+        <input type="checkbox" name="disableCharacterCardUser_{{id}}" {{checked characterDisabled}}>
+        <p class="notes">{{#if active}}Connected{{else}}Offline{{/if}} player</p>
+    </div>
+    <div class="form-group">
+        <label>Hide Helper Chat Card for Vehicles — {{name}}</label>
+        <input type="checkbox" name="disableVehicleCardUser_{{id}}" {{checked vehicleDisabled}}>
         <p class="notes">{{#if active}}Connected{{else}}Offline{{/if}} player</p>
     </div>
     {{/each}}

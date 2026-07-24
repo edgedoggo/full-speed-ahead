@@ -16,7 +16,7 @@ Full Speed Ahead rotates vehicle tokens toward their movement destination, can s
 - Name-keyed ship profiles for exhaust color overrides shared by every vehicle with the same name.
 - Vehicle Sheet Cosmetics panel with optional Creature Capacity to Module Capacity and Features to Ship Functions label changes.
 - Movement sounds are broadcast once by the movement initiator to avoid doubled playback.
-- Player QuickTarget and Vehicle QuickTarget settings for enabling character or vehicle targeting helpers independently.
+- Independent character/non-vehicle and vehicle QuickTarget controls for players and GMs.
 - Token-control QuickTarget button for GMs and players.
 - QuickTarget settings gear for GM/player enablement, timeout, double-right-click replacement, and per-player helper chat-card visibility.
 - Cooperative mode: if a standalone QuickTarget module is active, Full Speed Ahead leaves its bundled QuickTarget handlers idle to avoid duplicate targeting events.

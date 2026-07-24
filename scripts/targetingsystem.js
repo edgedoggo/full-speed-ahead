@@ -3,6 +3,8 @@
 const MODULE_ID = "full-speed-ahead";
 const DISABLED_TARGETING_CARD_ACTORS_SETTING = "disabledTargetingCardActors";
 const DISABLED_TARGETING_CARD_USERS_SETTING = "disabledTargetingCardUsers";
+const DISABLED_CHARACTER_CARD_USERS_SETTING = "disabledCharacterTargetingCardUsers";
+const DISABLED_VEHICLE_CARD_USERS_SETTING = "disabledVehicleTargetingCardUsers";
 const STANDALONE_QUICKTARGET_MODULE_IDS = ["quicktarget", "quick-target", "vehicle-quicktarget", "vehicle-quick-target"];
 
 export class TargetingSystem {
@@ -367,33 +369,32 @@ function getActorAttacks(actor) {
 }
 
 function isAnyQuickTargetEnabled() {
-    return Boolean(
-        game.settings.get(MODULE_ID, "enableTargetingSystem") &&
-        !isStandaloneQuickTargetActive() &&
-        isQuickTargetEnabledForCurrentUser() &&
-        (
-            game.settings.get(MODULE_ID, "enablePlayerQuickTarget") ||
-            game.settings.get(MODULE_ID, "enableVehicleQuickTarget")
-        )
-    );
+    if (isStandaloneQuickTargetActive()) return false;
+    return isNonVehicleQuickTargetEnabledForCurrentUser() || isVehicleQuickTargetEnabledForCurrentUser();
 }
 
 function isQuickTargetEnabledForSource(sourceToken) {
-    if (!game.settings.get(MODULE_ID, "enableTargetingSystem")) return false;
-    if (!isQuickTargetEnabledForCurrentUser()) return false;
     return sourceToken?.actor?.type === "vehicle"
-        ? game.settings.get(MODULE_ID, "enableVehicleQuickTarget")
-        : game.settings.get(MODULE_ID, "enablePlayerQuickTarget");
+        ? isVehicleQuickTargetEnabledForCurrentUser()
+        : isNonVehicleQuickTargetEnabledForCurrentUser();
 }
 
-function isQuickTargetEnabledForCurrentUser() {
+function isNonVehicleQuickTargetEnabledForCurrentUser() {
+    if (!game.settings.get(MODULE_ID, "enableTargetingSystem")) return false;
     return game.user.isGM
         ? game.settings.get(MODULE_ID, "enableTargetingSystemGM")
         : game.settings.get(MODULE_ID, "enableTargetingSystemPlayers");
 }
 
+function isVehicleQuickTargetEnabledForCurrentUser() {
+    if (!game.settings.get(MODULE_ID, "enableVehicleQuickTarget")) return false;
+    return game.user.isGM
+        ? game.settings.get(MODULE_ID, "enableVehicleQuickTargetGM")
+        : game.settings.get(MODULE_ID, "enableVehicleQuickTargetPlayers");
+}
+
 function getQuickTargetFeatureName(sourceToken) {
-    return sourceToken?.actor?.type === "vehicle" ? "Vehicle QuickTarget" : "Player QuickTarget";
+    return sourceToken?.actor?.type === "vehicle" ? "Vehicle QuickTarget" : "QuickTarget";
 }
 
 function isStandaloneQuickTargetActive() {
@@ -451,8 +452,15 @@ function setOnlyTarget(targetToken) {
 function shouldHideAttackCardForSource(sourceToken) {
     if (game.user.isGM) return false;
 
-    const disabledUsers = game.settings.get(MODULE_ID, DISABLED_TARGETING_CARD_USERS_SETTING) ?? {};
+    const isVehicle = sourceToken?.actor?.type === "vehicle";
+    const specificSetting = isVehicle
+        ? DISABLED_VEHICLE_CARD_USERS_SETTING
+        : DISABLED_CHARACTER_CARD_USERS_SETTING;
+    const disabledUsers = game.settings.get(MODULE_ID, specificSetting) ?? {};
     if (disabledUsers[game.user.id]) return true;
+
+    const legacyDisabledUsers = game.settings.get(MODULE_ID, DISABLED_TARGETING_CARD_USERS_SETTING) ?? {};
+    if (legacyDisabledUsers[game.user.id]) return true;
 
     // Preserve actor exclusions saved by versions up to v1.0.43.
     const actorId = sourceToken?.actor?.id;
