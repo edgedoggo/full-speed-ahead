@@ -8,6 +8,7 @@ const SHIP_PROFILE_FLAG = "shipProfileName";
 const SHIP_PROFILES_SETTING = "shipProfiles";
 const SCENE_THRUSTER_PROFILES_SETTING = "sceneThrusterProfiles";
 const DISABLED_TARGETING_CARD_ACTORS_SETTING = "disabledTargetingCardActors";
+const STANDALONE_QUICKTARGET_MODULE_IDS = ["quicktarget", "quick-target", "vehicle-quicktarget", "vehicle-quick-target"];
 const DEFAULT_MOVEMENT_SOUND_PATH = "modules/full-speed-ahead/sounds/lockon.ogg";
 const DEFAULT_THRUSTER_COLOR = "#40c7ff";
 const VEHICLE_HOVER_LOOP_MS = 5000;
@@ -654,6 +655,7 @@ function registerTargetingSettings() {
 
 function addTargetingSystemButton() {
     Hooks.on("getSceneControlButtons", controls => {
+        if (isStandaloneQuickTargetActive()) return;
         if (!game.settings.get(MODULE_ID, "enableTargetingSystem")) return;
         if (!game.settings.get(MODULE_ID, "enablePlayerQuickTarget") && !game.settings.get(MODULE_ID, "enableVehicleQuickTarget")) return;
 
@@ -682,6 +684,19 @@ function addTargetingSystemButton() {
         } else if (tokenControl.tools && typeof tokenControl.tools === "object") {
             tokenControl.tools[targetingTool.name] = targetingTool;
         }
+    });
+}
+
+function isStandaloneQuickTargetActive() {
+    const modules = Array.from(game.modules?.entries?.() ?? game.modules ?? []);
+    return modules.some(entry => {
+        const [moduleId, module] = Array.isArray(entry)
+            ? entry
+            : [entry?.id ?? entry?.name ?? entry?.data?.name, entry];
+        const id = String(moduleId ?? "");
+        if (id === MODULE_ID || !module?.active) return false;
+        const identity = `${id} ${module.title ?? ""} ${module.data?.title ?? ""} ${module.data?.name ?? ""}`;
+        return STANDALONE_QUICKTARGET_MODULE_IDS.includes(id) || /quick\s*-?\s*target/i.test(identity);
     });
 }
 

@@ -2,6 +2,7 @@
 
 const MODULE_ID = "full-speed-ahead";
 const DISABLED_TARGETING_CARD_ACTORS_SETTING = "disabledTargetingCardActors";
+const STANDALONE_QUICKTARGET_MODULE_IDS = ["quicktarget", "quick-target", "vehicle-quicktarget", "vehicle-quick-target"];
 
 export class TargetingSystem {
     static async highlightWeaponRange(sourceToken = null) {
@@ -367,6 +368,7 @@ function getActorAttacks(actor) {
 function isAnyQuickTargetEnabled() {
     return Boolean(
         game.settings.get(MODULE_ID, "enableTargetingSystem") &&
+        !isStandaloneQuickTargetActive() &&
         (
             game.settings.get(MODULE_ID, "enablePlayerQuickTarget") ||
             game.settings.get(MODULE_ID, "enableVehicleQuickTarget")
@@ -383,6 +385,19 @@ function isQuickTargetEnabledForSource(sourceToken) {
 
 function getQuickTargetFeatureName(sourceToken) {
     return sourceToken?.actor?.type === "vehicle" ? "Vehicle QuickTarget" : "Player QuickTarget";
+}
+
+function isStandaloneQuickTargetActive() {
+    const modules = Array.from(game.modules?.entries?.() ?? game.modules ?? []);
+    return modules.some(entry => {
+        const [moduleId, module] = Array.isArray(entry)
+            ? entry
+            : [entry?.id ?? entry?.name ?? entry?.data?.name, entry];
+        const id = String(moduleId ?? "");
+        if (id === MODULE_ID || !module?.active) return false;
+        const identity = `${id} ${module.title ?? ""} ${module.data?.title ?? ""} ${module.data?.name ?? ""}`;
+        return STANDALONE_QUICKTARGET_MODULE_IDS.includes(id) || /quick\s*-?\s*target/i.test(identity);
+    });
 }
 
 function getTargetingData(sourceToken, targetToken, weapons, spells) {
@@ -542,6 +557,11 @@ Hooks.on("ready", () => {
         ...(game.modules.get(MODULE_ID).api ?? {}),
         highlightWeaponRange: TargetingSystem.highlightWeaponRange
     };
+
+    if (isStandaloneQuickTargetActive()) {
+        console.log("Standalone QuickTarget detected. Full Speed Ahead bundled QuickTarget handlers are idle.");
+        return;
+    }
 
     document.addEventListener("keydown", event => TargetingSystem.handleTargetShortcut(event), true);
     patchDoubleRightClickTargeting();
