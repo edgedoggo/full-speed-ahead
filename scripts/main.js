@@ -278,7 +278,7 @@ class FullSpeedAheadTargetingCardsConfig extends FormApplication {
     static get defaultOptions() {
         return foundry.utils.mergeObject(super.defaultOptions, {
             id: "full-speed-ahead-targeting-cards-config",
-            title: "Full Speed Ahead: QuickTarget Chat Cards",
+            title: "Full Speed Ahead: QuickTarget Settings",
             template: `modules/${MODULE_ID}/templates/targeting-cards-settings.hbs`,
             width: 560,
             closeOnSubmit: true
@@ -295,12 +295,34 @@ class FullSpeedAheadTargetingCardsConfig extends FormApplication {
         }));
 
         return {
+            enableTargetingSystem: game.settings.get(MODULE_ID, "enableTargetingSystem"),
+            enableTargetingSystemPlayers: game.settings.get(MODULE_ID, "enableTargetingSystemPlayers"),
+            enableTargetingSystemGM: game.settings.get(MODULE_ID, "enableTargetingSystemGM"),
+            enablePlayerQuickTarget: game.settings.get(MODULE_ID, "enablePlayerQuickTarget"),
+            enableVehicleQuickTarget: game.settings.get(MODULE_ID, "enableVehicleQuickTarget"),
+            replaceDoubleRightClickTargeting: game.settings.get(MODULE_ID, "replaceDoubleRightClickTargeting"),
+            autoRemoveTargetingTemplate: game.settings.get(MODULE_ID, "autoRemoveTargetingTemplate"),
+            targetingTemplateRemovalSeconds: game.settings.get(MODULE_ID, "targetingTemplateRemovalSeconds"),
             actors,
             hasActors: actors.length > 0
         };
     }
 
     async _updateObject(event, formData) {
+        const settingUpdates = {
+            enableTargetingSystem: Boolean(formData.enableTargetingSystem),
+            enableTargetingSystemPlayers: Boolean(formData.enableTargetingSystemPlayers),
+            enableTargetingSystemGM: Boolean(formData.enableTargetingSystemGM),
+            enablePlayerQuickTarget: Boolean(formData.enablePlayerQuickTarget),
+            enableVehicleQuickTarget: Boolean(formData.enableVehicleQuickTarget),
+            replaceDoubleRightClickTargeting: Boolean(formData.replaceDoubleRightClickTargeting),
+            autoRemoveTargetingTemplate: Boolean(formData.autoRemoveTargetingTemplate),
+            targetingTemplateRemovalSeconds: clampNumber(Number(formData.targetingTemplateRemovalSeconds), 1, 120, 10)
+        };
+        for (const [key, value] of Object.entries(settingUpdates)) {
+            await game.settings.set(MODULE_ID, key, value);
+        }
+
         const disabledActors = {};
         for (const actor of collectTargetingCardActors()) {
             if (Boolean(formData[`disableTargetingCard_${actor.id}`])) disabledActors[actor.id] = true;
@@ -331,17 +353,17 @@ Hooks.once("init", () => {
     });
 
     game.settings.registerMenu(MODULE_ID, "targetingCardsConfig", {
-        name: "QuickTarget Chat Card Options",
-        label: "Configure QuickTarget Cards",
-        hint: "Disable private Player QuickTarget and Vehicle QuickTarget attack option cards for selected player characters.",
-        icon: "fas fa-comment-slash",
+        name: "QuickTarget Settings",
+        label: "Open QuickTarget Settings",
+        hint: "Configure Player QuickTarget, Vehicle QuickTarget, timeout behavior, and private helper chat cards.",
+        icon: "fas fa-crosshairs",
         type: FullSpeedAheadTargetingCardsConfig,
         restricted: true
     });
 
     registerSetting("enableShipRotation", {
-        name: "Enable Vehicle Rotation",
-        hint: "Automatically face vehicle tokens toward their movement destination.",
+        name: "Enable Vehicle Rotation When Moved",
+        hint: "Automatically face vehicle tokens toward their movement destination. The top of the token is treated as the front.",
         type: Boolean,
         default: true
     });
@@ -599,49 +621,56 @@ function registerTargetingSettings() {
         name: "Enable QuickTarget",
         hint: "Master switch for Full Speed Ahead's bundled Player QuickTarget and Vehicle QuickTarget tools. Requires refresh.",
         type: Boolean,
-        default: true
+        default: true,
+        config: false
     });
 
     registerSetting("enablePlayerQuickTarget", {
         name: "Player QuickTarget",
         hint: "Enable QuickTarget range overlays, T-key targeting, and private attack helpers for character and non-vehicle actor tokens.",
         type: Boolean,
-        default: true
+        default: true,
+        config: false
     });
 
     registerSetting("enableVehicleQuickTarget", {
         name: "Vehicle QuickTarget",
         hint: "Enable QuickTarget range overlays, T-key targeting, and private attack helpers for vehicle tokens.",
         type: Boolean,
-        default: true
+        default: true,
+        config: false
     });
 
     registerSetting("enableTargetingSystemGM", {
         name: "Show QuickTarget for GM",
         hint: "Places a QuickTarget button on the token controls for the GM. Requires refresh.",
         type: Boolean,
-        default: true
+        default: true,
+        config: false
     });
 
     registerSetting("enableTargetingSystemPlayers", {
         name: "Show QuickTarget for Players",
         hint: "Places a QuickTarget button on the token controls for players. Requires refresh.",
         type: Boolean,
-        default: true
+        default: true,
+        config: false
     });
 
     registerSetting("replaceDoubleRightClickTargeting", {
         name: "Replace Double Right-Click with QuickTarget",
         hint: "Use Player QuickTarget or Vehicle QuickTarget and private attack helpers when double right-clicking a token. Leave unchecked to keep Foundry's default targeting behavior.",
         type: Boolean,
-        default: false
+        default: false,
+        config: false
     });
 
     registerSetting("autoRemoveTargetingTemplate", {
         name: "Automatically Remove QuickTarget Template",
         hint: "Automatically clear QuickTarget labels and range templates after the configured number of seconds.",
         type: Boolean,
-        default: true
+        default: true,
+        config: false
     });
 
     registerSetting("targetingTemplateRemovalSeconds", {
@@ -649,7 +678,8 @@ function registerTargetingSettings() {
         hint: "How many seconds QuickTarget labels and range templates remain visible when automatic removal is enabled.",
         type: Number,
         default: 10,
-        range: { min: 1, max: 120, step: 1 }
+        range: { min: 1, max: 120, step: 1 },
+        config: false
     });
 }
 

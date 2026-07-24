@@ -1,10 +1,65 @@
 <form autocomplete="off">
+    <div class="form-group">
+        <label>Enable QuickTarget</label>
+        <input type="checkbox" name="enableTargetingSystem" {{checked enableTargetingSystem}}>
+        <p class="notes">Master switch for Full Speed Ahead's bundled Player QuickTarget and Vehicle QuickTarget tools.</p>
+    </div>
+
+    <div class="form-group">
+        <label>Enable QuickTarget for Players</label>
+        <input type="checkbox" name="enableTargetingSystemPlayers" {{checked enableTargetingSystemPlayers}}>
+        <p class="notes">Show the QuickTarget scene-control button for non-GM users.</p>
+    </div>
+
+    <div class="form-group">
+        <label>Enable QuickTarget for GM</label>
+        <input type="checkbox" name="enableTargetingSystemGM" {{checked enableTargetingSystemGM}}>
+        <p class="notes">Show the QuickTarget scene-control button for the GM.</p>
+    </div>
+
+    <hr>
+
+    <div class="form-group">
+        <label>Player QuickTarget</label>
+        <input type="checkbox" name="enablePlayerQuickTarget" {{checked enablePlayerQuickTarget}}>
+        <p class="notes">Enable QuickTarget for character and non-vehicle actor tokens.</p>
+    </div>
+
+    <div class="form-group">
+        <label>Vehicle QuickTarget</label>
+        <input type="checkbox" name="enableVehicleQuickTarget" {{checked enableVehicleQuickTarget}}>
+        <p class="notes">Enable QuickTarget for vehicle tokens.</p>
+    </div>
+
+    <div class="form-group">
+        <label>Replace Double Right-Click Targeting</label>
+        <input type="checkbox" name="replaceDoubleRightClickTargeting" {{checked replaceDoubleRightClickTargeting}}>
+        <p class="notes">Use QuickTarget when double right-clicking a token. Leave unchecked to keep Foundry's default targeting behavior.</p>
+    </div>
+
+    <hr>
+
+    <div class="form-group">
+        <label>Enable Timeout</label>
+        <input type="checkbox" name="autoRemoveTargetingTemplate" {{checked autoRemoveTargetingTemplate}}>
+        <p class="notes">Automatically clear QuickTarget labels and range templates after the configured number of seconds.</p>
+    </div>
+
+    <div class="form-group">
+        <label>Timeout Seconds</label>
+        <div class="form-fields">
+            <input type="number" name="targetingTemplateRemovalSeconds" value="{{targetingTemplateRemovalSeconds}}" min="1" max="120" step="1">
+        </div>
+    </div>
+
+    <hr>
+
     {{#if hasActors}}
-    <p class="notes">Checked actors will not receive Full Speed Ahead QuickTarget private attack option chat cards when used by players. QuickTarget selection still works.</p>
+    <p class="notes">Checked actors will not receive Full Speed Ahead QuickTarget private helper chat cards when used by players. QuickTarget selection still works.</p>
 
     {{#each actors}}
     <div class="form-group">
-        <label>Disable Chat Card attack options for {{name}}</label>
+        <label>Hide Helper Chat Card for {{name}}</label>
         <input type="checkbox" name="disableTargetingCard_{{id}}" {{checked disabled}}>
         <p class="notes">{{type}}</p>
     </div>
