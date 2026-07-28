@@ -15,6 +15,13 @@ const STANDALONE_QUICKTARGET_MODULE_IDS = ["quicktarget", "quick-target", "vehic
 const DEFAULT_MOVEMENT_SOUND_PATH = "modules/full-speed-ahead/sounds/lockon.ogg";
 const DEFAULT_THRUSTER_COLOR = "#40c7ff";
 const VEHICLE_HOVER_LOOP_MS = 5000;
+const VEHICLE_HOVER_MAX_START_OFFSET_MS = 3000;
+const VEHICLE_BOW_OFFSETS = {
+    north: 0,
+    east: -90,
+    south: 180,
+    west: 90
+};
 const lastTokenPositions = new Map();
 const activeMotionEffects = new Map();
 const activeVehicleHovers = new Map();
@@ -44,12 +51,18 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
         const fallbackColor = game.settings.get(MODULE_ID, "thrusterColor") || DEFAULT_THRUSTER_COLOR;
         const movementSound = getMovementSoundOptions(tokenDocument, focusedProfile);
         const dimensions = getThrusterDimensionsForProfile(canvas.scene?.id, focusedShipName);
+        const bowFacing = getVehicleBowFacing();
 
         return {
             enableMovementSound: game.settings.get(MODULE_ID, "enableMovementSound"),
             movementSoundPath: movementSound.src,
             movementSoundVolume: movementSound.volume,
             enableThrusterEffect: game.settings.get(MODULE_ID, "enableThrusterEffect"),
+            bowOptions: ["north", "east", "south", "west"].map(value => ({
+                value,
+                label: value.charAt(0).toUpperCase() + value.slice(1),
+                selected: value === bowFacing
+            })),
             thrusterScale: dimensions.scale,
             thrusterPosition: dimensions.position,
             thrusterLength: dimensions.length,
@@ -112,6 +125,10 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
             this.updateConeVisibility(html);
             this.previewFromForm(html);
         });
+        html.find('[name="enableThrusterEffect"]').on("change", () => {
+            this.updateThrusterControlsVisibility(html);
+            this.previewFromForm(html);
+        });
         html.find('[name="thrusterInverted"], [name^="extraCone"][name$="Inverted"]').on("change", () => this.previewFromForm(html));
 
         html.find('[name="shipProfileName"]').on("change", event => {
@@ -154,7 +171,12 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
         });
 
         this.updateConeVisibility(html);
+        this.updateThrusterControlsVisibility(html);
         this.previewFromForm(html);
+    }
+
+    updateThrusterControlsVisibility(html) {
+        html.find("[data-thruster-controls]").toggle(html.find('[name="enableThrusterEffect"]').is(":checked"));
     }
 
     updateConeVisibility(html) {
@@ -198,6 +220,11 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
     }
 
     previewFromForm(html) {
+        if (!html.find('[name="enableThrusterEffect"]').is(":checked")) {
+            clearThrusterPreview();
+            return;
+        }
+
         const tokenDocument = this.tokenDocument;
         const token = canvas.tokens?.get(tokenDocument?.id);
         if (!token) return;
@@ -210,7 +237,8 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
         const tokenDocument = this.tokenDocument;
         const updates = {
             enableMovementSound: Boolean(formData.enableMovementSound),
-            enableThrusterEffect: Boolean(formData.enableThrusterEffect)
+            enableThrusterEffect: Boolean(formData.enableThrusterEffect),
+            vehicleBowFacing: getValidVehicleBowFacing(formData.vehicleBowFacing)
         };
 
         for (const [key, value] of Object.entries(updates)) {
@@ -456,10 +484,24 @@ Hooks.once("init", () => {
 
     registerSetting("rotationOffset", {
         name: "Rotation Offset",
-        hint: "Degrees added to the calculated heading. Use this if your ship art faces a different direction.",
+        hint: "Advanced degrees added to the calculated heading after Vehicle Bow Facing is applied.",
         type: Number,
         default: 0,
         range: { min: -180, max: 180, step: 15 }
+    });
+
+    registerSetting("vehicleBowFacing", {
+        name: "Vehicle Bow Facing",
+        hint: "Direction the vehicle art faces before Foundry applies token rotation.",
+        type: String,
+        default: "north",
+        choices: {
+            north: "North",
+            east: "East",
+            south: "South",
+            west: "West"
+        },
+        config: false
     });
 
     registerSetting("enableVehicleHoverEffect", {
@@ -671,7 +713,7 @@ Hooks.on("preUpdateToken", (tokenDocument, changes, options, userId) => {
     const rotation = getHeadingRotation(origin, destination);
     if (rotation === null) return;
 
-    const adjustedRotation = normalizeDegrees(rotation + getSettingNumber("rotationOffset", 0));
+    const adjustedRotation = normalizeDegrees(rotation + getVehicleRotationOffset());
     lastTokenPositions.set(tokenDocument.id, origin);
     options.fullSpeedAheadMotion = {
         origin,
@@ -893,6 +935,19 @@ function normalizeDegrees(degrees) {
     return ((degrees % 360) + 360) % 360;
 }
 
+function getVehicleRotationOffset() {
+    return VEHICLE_BOW_OFFSETS[getVehicleBowFacing()] + getSettingNumber("rotationOffset", 0);
+}
+
+function getVehicleBowFacing() {
+    return getValidVehicleBowFacing(game.settings.get(MODULE_ID, "vehicleBowFacing"));
+}
+
+function getValidVehicleBowFacing(value) {
+    const facing = String(value ?? "north").toLocaleLowerCase();
+    return Object.prototype.hasOwnProperty.call(VEHICLE_BOW_OFFSETS, facing) ? facing : "north";
+}
+
 function getSettingNumber(key, fallback) {
     const value = Number(game.settings.get(MODULE_ID, key));
     return Number.isFinite(value) ? value : fallback;
@@ -983,7 +1038,7 @@ function applyVehicleHoverIfNeeded(token) {
         baseY: position.y,
         offsetX: 0,
         offsetY: 0,
-        phase: getStableHoverPhase(token.id)
+        hoverSeed: getStableHoverSeed(token.id)
     });
     ensureVehicleHoverTicker();
 }
@@ -1035,18 +1090,19 @@ function updateVehicleHovers() {
         const amplitudeX = Math.max(0, getSettingNumber("vehicleHoverOffsetX", 2));
         const amplitudeY = Math.max(0, getSettingNumber("vehicleHoverOffsetY", 3));
         const speed = Math.max(0.1, getSettingNumber("vehicleHoverSpeed", 1));
-        const cycle = ((now * speed) + state.phase) / VEHICLE_HOVER_LOOP_MS;
+        const startOffset = state.hoverSeed.startOffsetMs;
+        const cycle = ((now + startOffset) * speed) / VEHICLE_HOVER_LOOP_MS;
         const primary = cycle * Math.PI * 2;
-        const secondary = (cycle * 1.73 + 0.19) * Math.PI * 2;
-        const tertiary = (cycle * 0.61 + 0.37) * Math.PI * 2;
+        const secondary = (cycle * 1.73 + state.hoverSeed.secondaryPhase) * Math.PI * 2;
+        const tertiary = (cycle * 0.61 + state.hoverSeed.tertiaryPhase) * Math.PI * 2;
         const offsetX = (
-            Math.sin(primary) * 0.7 +
-            Math.sin(secondary + state.phase * 0.003) * 0.22 +
+            Math.sin(primary + state.hoverSeed.xPhase) * 0.7 +
+            Math.sin(secondary) * 0.22 +
             Math.cos(tertiary) * 0.08
         ) * amplitudeX;
         const offsetY = (
-            Math.cos(primary * 0.83 + 0.55) * 0.66 +
-            Math.sin(secondary * 0.71 + state.phase * 0.002) * 0.24 +
+            Math.cos(primary * 0.83 + state.hoverSeed.yPhase) * 0.66 +
+            Math.sin(secondary * 0.71 + state.hoverSeed.yPhase * 0.31) * 0.24 +
             Math.cos(tertiary * 1.37) * 0.1
         ) * amplitudeY;
 
@@ -1104,9 +1160,22 @@ function getVehicleHoverPosition(object) {
     }
 }
 
-function getStableHoverPhase(tokenId) {
-    const seed = String(tokenId ?? "").split("").reduce((total, character) => total + character.charCodeAt(0), 0);
-    return seed % VEHICLE_HOVER_LOOP_MS;
+function getStableHoverSeed(tokenId) {
+    let hash = 2166136261;
+    for (const character of String(tokenId ?? "")) {
+        hash ^= character.charCodeAt(0);
+        hash = Math.imul(hash, 16777619);
+    }
+
+    const normalized = hash >>> 0;
+    const ratio = part => ((normalized >>> part) & 0xff) / 255;
+    return {
+        startOffsetMs: normalized % VEHICLE_HOVER_MAX_START_OFFSET_MS,
+        xPhase: ratio(0) * Math.PI * 2,
+        yPhase: ratio(8) * Math.PI * 2,
+        secondaryPhase: ratio(16),
+        tertiaryPhase: ratio(24)
+    };
 }
 
 function startVehicleMotionEffects(tokenDocument, options) {
@@ -1169,7 +1238,7 @@ function getFallbackMotion(tokenDocument, destination) {
         origin,
         destination,
         startRotation: normalizeDegrees(tokenDocument.rotation ?? 0),
-        targetRotation: normalizeDegrees(targetRotation + getSettingNumber("rotationOffset", 0))
+        targetRotation: normalizeDegrees(targetRotation + getVehicleRotationOffset())
     };
 }
 

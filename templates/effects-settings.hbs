@@ -53,111 +53,125 @@
     {{/if}}
 
     <div class="form-group">
-        <label>Scale</label>
+        <label>Orientation</label>
         <div class="form-fields">
-            <input type="range" name="thrusterScale" value="{{thrusterScale}}" min="-10" max="10" step="0.5" data-sync-range="thrusterScale">
-            <input type="number" value="{{thrusterScale}}" min="-10" max="10" step="0.5" data-sync-number="thrusterScale">
+            <select name="vehicleBowFacing">
+                {{#each bowOptions}}
+                <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+                {{/each}}
+            </select>
         </div>
+        <p class="notes">Vehicle/Craft bow faces this direction before Foundry applies token rotation.</p>
     </div>
 
-    <div class="form-group">
-        <label>Position</label>
-        <div class="form-fields">
-            <input type="range" name="thrusterPosition" value="{{thrusterPosition}}" min="-6" max="6" step="0.25" data-sync-range="thrusterPosition">
-            <input type="number" value="{{thrusterPosition}}" min="-6" max="6" step="0.25" data-sync-number="thrusterPosition">
-        </div>
-    </div>
-
-    <fieldset>
-        <legend>Primary Thrust</legend>
-
-        {{#if hasShipProfiles}}
+    <div data-thruster-controls {{#unless enableThrusterEffect}}style="display: none;"{{/unless}}>
         <div class="form-group">
-            <label>Color</label>
+            <label>Scale</label>
             <div class="form-fields">
-                <input type="color" name="shipThrusterColor" value="{{shipThrusterColor}}" data-color-picker="shipThrusterColor">
-                <input type="text" data-color-text="shipThrusterColor" value="{{shipThrusterColor}}">
-            </div>
-        </div>
-        {{/if}}
-
-        <div class="form-group">
-            <label>Length</label>
-            <div class="form-fields">
-                <input type="range" name="thrusterLength" value="{{thrusterLength}}" min="0.25" max="12" step="0.25" data-sync-range="thrusterLength">
-                <input type="number" value="{{thrusterLength}}" min="0.25" max="12" step="0.25" data-sync-number="thrusterLength">
+                <input type="range" name="thrusterScale" value="{{thrusterScale}}" min="-10" max="10" step="0.5" data-sync-range="thrusterScale">
+                <input type="number" value="{{thrusterScale}}" min="-10" max="10" step="0.5" data-sync-number="thrusterScale">
             </div>
         </div>
 
         <div class="form-group">
-            <label>Width</label>
+            <label>Position</label>
             <div class="form-fields">
-                <input type="range" name="thrusterWidth" value="{{thrusterWidth}}" min="0.1" max="6" step="0.05" data-sync-range="thrusterWidth">
-                <input type="number" value="{{thrusterWidth}}" min="0.1" max="6" step="0.05" data-sync-number="thrusterWidth">
+                <input type="range" name="thrusterPosition" value="{{thrusterPosition}}" min="-6" max="6" step="0.25" data-sync-range="thrusterPosition">
+                <input type="number" value="{{thrusterPosition}}" min="-6" max="6" step="0.25" data-sync-number="thrusterPosition">
             </div>
         </div>
 
-        <div class="form-group">
-            <label>Invert</label>
-            <input type="checkbox" name="thrusterInverted" {{checked thrusterInverted}}>
-        </div>
-    </fieldset>
+        <fieldset>
+            <legend>Primary Thrust</legend>
 
-    <details>
-        <summary><i class="fas fa-cog"></i> Advanced Thrust</summary>
-
-        <div class="form-group">
-            <label>Thrust Count</label>
-            <div class="form-fields">
-                <input type="range" name="coneCount" value="{{coneCount}}" min="1" max="3" step="1" data-sync-range="coneCount">
-                <input type="number" value="{{coneCount}}" min="1" max="3" step="1" data-sync-number="coneCount">
-            </div>
-            <p class="notes">Thrust count includes Primary Thrust. Additional thrust controls appear as needed.</p>
-        </div>
-
-        <div class="form-group">
-            <label>Thrust Spacing</label>
-            <div class="form-fields">
-                <input type="range" name="coneSpacing" value="{{coneSpacing}}" min="0" max="6" step="0.05" data-sync-range="coneSpacing">
-                <input type="number" value="{{coneSpacing}}" min="0" max="6" step="0.05" data-sync-number="coneSpacing">
-            </div>
-        </div>
-
-        {{#each extraCones}}
-        <fieldset data-extra-thrust-index="{{index}}">
-            <legend>Additional Thrust {{letter}}</legend>
-
+            {{#if hasShipProfiles}}
             <div class="form-group">
                 <label>Color</label>
                 <div class="form-fields">
-                    <input type="color" name="extraCone{{index}}Color" value="{{color}}" data-color-picker="extraCone{{index}}Color">
-                    <input type="text" data-color-text="extraCone{{index}}Color" value="{{color}}">
+                    <input type="color" name="shipThrusterColor" value="{{shipThrusterColor}}" data-color-picker="shipThrusterColor">
+                    <input type="text" data-color-text="shipThrusterColor" value="{{shipThrusterColor}}">
                 </div>
             </div>
+            {{/if}}
 
             <div class="form-group">
                 <label>Length</label>
                 <div class="form-fields">
-                    <input type="range" name="extraCone{{index}}Length" value="{{length}}" min="0.25" max="12" step="0.25" data-sync-range="extraCone{{index}}Length">
-                    <input type="number" value="{{length}}" min="0.25" max="12" step="0.25" data-sync-number="extraCone{{index}}Length">
+                    <input type="range" name="thrusterLength" value="{{thrusterLength}}" min="0.25" max="12" step="0.25" data-sync-range="thrusterLength">
+                    <input type="number" value="{{thrusterLength}}" min="0.25" max="12" step="0.25" data-sync-number="thrusterLength">
                 </div>
             </div>
 
             <div class="form-group">
                 <label>Width</label>
                 <div class="form-fields">
-                    <input type="range" name="extraCone{{index}}Width" value="{{width}}" min="0.1" max="6" step="0.05" data-sync-range="extraCone{{index}}Width">
-                    <input type="number" value="{{width}}" min="0.1" max="6" step="0.05" data-sync-number="extraCone{{index}}Width">
+                    <input type="range" name="thrusterWidth" value="{{thrusterWidth}}" min="0.1" max="6" step="0.05" data-sync-range="thrusterWidth">
+                    <input type="number" value="{{thrusterWidth}}" min="0.1" max="6" step="0.05" data-sync-number="thrusterWidth">
                 </div>
             </div>
 
             <div class="form-group">
                 <label>Invert</label>
-                <input type="checkbox" name="extraCone{{index}}Inverted" {{checked inverted}}>
+                <input type="checkbox" name="thrusterInverted" {{checked thrusterInverted}}>
             </div>
         </fieldset>
-        {{/each}}
-    </details>
+
+        <details>
+            <summary><i class="fas fa-cog"></i> Advanced Thrust</summary>
+
+            <div class="form-group">
+                <label>Thrust Count</label>
+                <div class="form-fields">
+                    <input type="range" name="coneCount" value="{{coneCount}}" min="1" max="3" step="1" data-sync-range="coneCount">
+                    <input type="number" value="{{coneCount}}" min="1" max="3" step="1" data-sync-number="coneCount">
+                </div>
+                <p class="notes">Thrust count includes Primary Thrust. Additional thrust controls appear as needed.</p>
+            </div>
+
+            <div class="form-group">
+                <label>Thrust Spacing</label>
+                <div class="form-fields">
+                    <input type="range" name="coneSpacing" value="{{coneSpacing}}" min="0" max="6" step="0.05" data-sync-range="coneSpacing">
+                    <input type="number" value="{{coneSpacing}}" min="0" max="6" step="0.05" data-sync-number="coneSpacing">
+                </div>
+            </div>
+
+            {{#each extraCones}}
+            <fieldset data-extra-thrust-index="{{index}}">
+                <legend>Additional Thrust {{letter}}</legend>
+
+                <div class="form-group">
+                    <label>Color</label>
+                    <div class="form-fields">
+                        <input type="color" name="extraCone{{index}}Color" value="{{color}}" data-color-picker="extraCone{{index}}Color">
+                        <input type="text" data-color-text="extraCone{{index}}Color" value="{{color}}">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Length</label>
+                    <div class="form-fields">
+                        <input type="range" name="extraCone{{index}}Length" value="{{length}}" min="0.25" max="12" step="0.25" data-sync-range="extraCone{{index}}Length">
+                        <input type="number" value="{{length}}" min="0.25" max="12" step="0.25" data-sync-number="extraCone{{index}}Length">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Width</label>
+                    <div class="form-fields">
+                        <input type="range" name="extraCone{{index}}Width" value="{{width}}" min="0.1" max="6" step="0.05" data-sync-range="extraCone{{index}}Width">
+                        <input type="number" value="{{width}}" min="0.1" max="6" step="0.05" data-sync-number="extraCone{{index}}Width">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Invert</label>
+                    <input type="checkbox" name="extraCone{{index}}Inverted" {{checked inverted}}>
+                </div>
+            </fieldset>
+            {{/each}}
+        </details>
+    </div>
 
     <footer class="sheet-footer flexrow">
         <button type="submit">
