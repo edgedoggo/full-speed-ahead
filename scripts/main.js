@@ -240,10 +240,11 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
         const shipColor = String(formData.shipThrusterColor ?? fallbackColor).trim();
         profile.thrusterColor = /^#[0-9a-f]{6}$/i.test(shipColor) ? shipColor : fallbackColor;
 
+        profile.thrusterDimensions = this.getThrusterConfigFromForm($(event.currentTarget));
         profiles[profileKey] = profile;
         await game.settings.set(MODULE_ID, SHIP_PROFILES_SETTING, profiles);
         await setAssignedShipProfileName(tokenDocument, profileName);
-        await setSceneThrusterDimensionsForProfile(canvas.scene?.id, profileName, this.getThrusterConfigFromForm($(event.currentTarget)));
+        await clearSceneThrusterDimensionsForProfile(canvas.scene?.id, profileName);
         clearThrusterPreview();
     }
 
@@ -1274,7 +1275,7 @@ function drawThrusterCone(graphics, token, rotation, dimensions = null) {
     const coneCount = Math.max(1, Math.min(3, resolvedDimensions.coneCount));
     for (let coneIndex = 0; coneIndex < coneCount; coneIndex++) {
         const cone = resolvedDimensions.cones[coneIndex] ?? resolvedDimensions.cones[0];
-        const offset = (coneIndex - (coneCount - 1) / 2) * resolvedDimensions.coneSpacing * scaleFactor * canvas.grid.size;
+        const offset = getThrusterConeOffset(coneIndex, coneCount) * resolvedDimensions.coneSpacing * scaleFactor * canvas.grid.size;
         drawSingleThrusterCone(graphics, {
             rearX: rearX + sideX * offset,
             rearY: rearY + sideY * offset,
@@ -1288,6 +1289,12 @@ function drawThrusterCone(graphics, token, rotation, dimensions = null) {
             inverted: Boolean(cone.inverted)
         });
     }
+}
+
+function getThrusterConeOffset(coneIndex, coneCount) {
+    if (coneIndex === 0) return 0;
+    if (coneCount === 2) return 1;
+    return coneIndex === 1 ? -1 : 1;
 }
 
 function drawSingleThrusterCone(graphics, cone) {
@@ -1352,9 +1359,10 @@ function getThrusterDimensions(tokenDocument) {
 }
 
 function getThrusterDimensionsForProfile(sceneId, shipName) {
+    const shipProfile = getShipProfile(shipName);
     const sceneProfile = getSceneThrusterProfile(sceneId, shipName);
-    const color = getShipProfile(shipName)?.thrusterColor ?? game.settings.get(MODULE_ID, "thrusterColor") ?? DEFAULT_THRUSTER_COLOR;
-    const config = normalizeThrusterConfig(sceneProfile, color);
+    const color = shipProfile?.thrusterColor ?? game.settings.get(MODULE_ID, "thrusterColor") ?? DEFAULT_THRUSTER_COLOR;
+    const config = normalizeThrusterConfig(shipProfile?.thrusterDimensions ?? sceneProfile, color);
     config.color = color;
     config.cones[0] = { ...config.cones[0], color };
     return config;
@@ -1421,8 +1429,15 @@ async function clearSceneThrusterDimensions(tokenDocument) {
     const profileName = getShipProfileName(tokenDocument);
     if (!profileName) return;
 
+    return clearSceneThrusterDimensionsForProfile(canvas.scene?.id, profileName);
+}
+
+async function clearSceneThrusterDimensionsForProfile(sceneId, shipName) {
+    const profileName = String(shipName ?? "").trim();
+    if (!profileName) return;
+
     const profiles = getSceneThrusterProfiles();
-    delete profiles[getSceneThrusterProfileKey(canvas.scene?.id, profileName)];
+    delete profiles[getSceneThrusterProfileKey(sceneId, profileName)];
     await game.settings.set(MODULE_ID, SCENE_THRUSTER_PROFILES_SETTING, profiles);
 }
 
