@@ -1,0 +1,42 @@
+<form autocomplete="off">
+    <div class="form-group">
+        <label>Vehicles Send Crew to Combat rather than the Vehicle</label>
+        <input type="checkbox" name="vehicleCombatCrewMode" {{checked vehicleCombatCrewMode}}>
+        <p class="notes">When a vehicle is added to combat, replace it with combatants for the crew listed on the vehicle sheet.</p>
+    </div>
+
+    <hr>
+
+    <div class="form-group">
+        <label>Combat Order Display</label>
+        <div class="form-fields">
+            <select name="vehicleCombatDisplayMode">
+                {{#each displayModes}}
+                <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+                {{/each}}
+            </select>
+        </div>
+        <p class="notes">Full shows vessel and crew portraits plus Vessel / Crew names. Simple shows the crew portrait with a ship badge.</p>
+    </div>
+
+    <div class="form-group">
+        <label>Ship Badge Icon</label>
+        <div class="form-fields">
+            <input type="text" name="vehicleCombatShipIcon" value="{{vehicleCombatShipIcon}}">
+            <button type="button" data-action="browse-ship-icon" title="Browse image files">
+                <i class="fas fa-folder-open"></i>
+            </button>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>Debug Logging</label>
+        <input type="checkbox" name="vehicleCombatDebug" {{checked vehicleCombatDebug}}>
+    </div>
+
+    <footer class="sheet-footer flexrow">
+        <button type="submit">
+            <i class="fas fa-save"></i> Save
+        </button>
+    </footer>
+</form>

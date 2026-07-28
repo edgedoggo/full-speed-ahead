@@ -10,7 +10,7 @@
             "url": "https://github.com/openkyle/full-speed-ahead"
         }
     ],
-    "version": "1.0.47",
+    "version": "1.0.48",
     "compatibility": {
         "minimum": "10",
         "verified": "11.312"
@@ -22,8 +22,13 @@
     "socket": true,
     "esmodules": [
     "scripts/main.js",
-    "scripts/targetingsystem.js"
+    "scripts/targetingsystem.js",
+    "scripts/vehicle-combat.js"
   ],
+
+    "styles": [
+        "styles/vehicle-combat.css"
+    ],
 
     "languages": [],
     "packs": [],
