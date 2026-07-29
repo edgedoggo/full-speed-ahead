@@ -64,6 +64,60 @@
     padding-bottom: 4px;
 }
 
+.full-speed-ahead-sheet-tools {
+    display: grid;
+    gap: 7px;
+    margin: 8px 0;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+}
+
+.full-speed-ahead-sheet-tools button {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    min-height: 32px;
+    margin: 0;
+}
+
+.full-speed-ahead-sheet-tools button i {
+    width: 18px;
+    text-align: center;
+}
+
+.fsa-settings-hub header {
+    border-bottom: 1px solid rgba(80, 80, 72, 0.45);
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+}
+
+.fsa-settings-hub h2 {
+    margin: 0 0 4px;
+}
+
+.fsa-settings-grid {
+    display: grid;
+    gap: 10px;
+}
+
+.fsa-settings-grid button {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+    min-height: 42px;
+    padding: 8px 12px;
+    text-align: left;
+}
+
+.fsa-settings-grid button i {
+    width: 20px;
+    text-align: center;
+}
+
 #full-speed-ahead-effects-config .fsa-profile-selector {
     border-bottom: 1px solid rgba(80, 80, 72, 0.45);
     margin-bottom: 12px;
@@ -212,6 +266,10 @@
 
 .fsa-chat-card {
     line-height: 1.35;
+}
+
+.fsa-center {
+    text-align: center;
 }
 
 .fsa-green {

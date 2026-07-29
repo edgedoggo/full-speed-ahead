@@ -73,7 +73,7 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
             vehicleCombatShipIcon: game.settings.get(MODULE_ID, "vehicleCombatShipIcon"),
             vehicleCombatDebug: game.settings.get(MODULE_ID, "vehicleCombatDebug"),
             vehicleOpsEnabled: safeGetModuleSetting("vehicleOpsEnabled", true),
-            vehicleOpsPlayersCanOpen: safeGetModuleSetting("vehicleOpsPlayersCanOpen", true),
+            vehicleSheetToolsEnabled: safeGetModuleSetting("vehicleSheetToolsEnabled", true),
             vehicleOpsShowFloatingMenuPlayers: safeGetModuleSetting("vehicleOpsShowFloatingMenuPlayers", false),
             vehicleOpsScansEnabled: safeGetModuleSetting("vehicleOpsScansEnabled", true),
             vehicleOpsRepairCostPerHp: safeGetModuleSetting("vehicleOpsRepairCostPerHp", 100),
@@ -129,7 +129,7 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
         await game.settings.set(MODULE_ID, "vehicleCombatShipIcon", String(formData.vehicleCombatShipIcon || DEFAULT_SHIP_BADGE).trim());
         await game.settings.set(MODULE_ID, "vehicleCombatDebug", Boolean(formData.vehicleCombatDebug));
         await safeSetModuleSetting("vehicleOpsEnabled", Boolean(formData.vehicleOpsEnabled));
-        await safeSetModuleSetting("vehicleOpsPlayersCanOpen", Boolean(formData.vehicleOpsPlayersCanOpen));
+        await safeSetModuleSetting("vehicleSheetToolsEnabled", Boolean(formData.vehicleSheetToolsEnabled));
         await safeSetModuleSetting("vehicleOpsShowFloatingMenuPlayers", Boolean(formData.vehicleOpsShowFloatingMenuPlayers));
         await safeSetModuleSetting("vehicleOpsScansEnabled", Boolean(formData.vehicleOpsScansEnabled));
         await safeSetModuleSetting("vehicleOpsRepairCostPerHp", Math.max(0, Number(formData.vehicleOpsRepairCostPerHp || 0)));
@@ -151,6 +151,8 @@ Hooks.once("init", () => {
         type: FullSpeedAheadVehicleCombatConfig,
         restricted: true
     });
+    game.fullSpeedAhead = game.fullSpeedAhead || {};
+    game.fullSpeedAhead.openVehicleCombatSettings = () => new FullSpeedAheadVehicleCombatConfig().render(true);
 
     registerVehicleCombatSetting("vehicleCombatCrewMode", {
         name: "Send Crew to Combat Initiative, not Vehicle",
@@ -919,27 +921,42 @@ function renderVehicleCrewTracker(app, html) {
         }
         const portraitWrapper = row.find(".full-speed-ahead-crew-portrait").first();
         portraitWrapper.find(".full-speed-ahead-vessel-image").remove();
-        if (portraitWrapper.length && !portraitWrapper.find(".full-speed-ahead-ship-badge").length) {
-            portraitWrapper.append(`<img class="full-speed-ahead-ship-badge" src="${escapeHtml(badgeIcon)}" alt="">`);
-        }
+        portraitWrapper.find(".full-speed-ahead-ship-badge").remove();
 
         let roleBlock = row.find(".full-speed-ahead-vehicle-role").first();
-        if (!roleBlock.length && portraitWrapper.length) {
+        if (mode === VEHICLE_COMBAT_DISPLAY_MODES.FULL && !roleBlock.length && portraitWrapper.length) {
             roleBlock = $(`<div class="full-speed-ahead-vehicle-role">
                 <img class="full-speed-ahead-vessel-image" src="${escapeHtml(data.vehicleImg)}" alt="${escapeHtml(data.vehicleName)}">
-                <span></span>
             </div>`);
             portraitWrapper.before(roleBlock);
         }
-        roleBlock.find("span").text(data.role || "Crew");
-        roleBlock.find("img").attr({ src: data.vehicleImg, alt: data.vehicleName });
+        if (mode === VEHICLE_COMBAT_DISPLAY_MODES.FULL) {
+            roleBlock.find("img").attr({ src: data.vehicleImg, alt: data.vehicleName });
+        } else {
+            roleBlock.remove();
+            if (portraitWrapper.length && !portraitWrapper.find(".full-speed-ahead-ship-badge").length) {
+                portraitWrapper.append(`<img class="full-speed-ahead-ship-badge" src="${escapeHtml(badgeIcon)}" alt="">`);
+            }
+        }
+
+        const nameContainer = row.find(".token-name").first();
+        const heading = nameContainer.find("h4").first();
+        const crewName = combatant.name || "Crew";
+        nameContainer.find(".full-speed-ahead-crew-role-line").remove();
 
         if (mode === VEHICLE_COMBAT_DISPLAY_MODES.FULL) {
-            const name = row.find(".token-name h4, .token-name").first();
-            const existing = name.text().trim().replace(new RegExp(`^${escapeRegExp(data.vehicleName)}\\s*/\\s*`), "");
-            if (existing) {
-                name.text(`${data.vehicleName} / ${existing}`);
+            const combinedName = `${data.vehicleName} / ${crewName}`;
+            if (heading.length) {
+                heading.text(combinedName);
+                heading.after(`<div class="full-speed-ahead-crew-role-line">${escapeHtml(data.role || "Crew")}${data.ability ? ` (${escapeHtml(data.ability)})` : ""}</div>`);
+            } else if (nameContainer.length) {
+                nameContainer.text(combinedName);
+                nameContainer.append(`<div class="full-speed-ahead-crew-role-line">${escapeHtml(data.role || "Crew")}${data.ability ? ` (${escapeHtml(data.ability)})` : ""}</div>`);
             }
+        } else if (heading.length) {
+            heading.text(crewName);
+        } else if (nameContainer.length) {
+            nameContainer.text(crewName);
         }
 
         row.off("dblclick.fullSpeedAheadVehicleCombat").on("dblclick.fullSpeedAheadVehicleCombat", () => {

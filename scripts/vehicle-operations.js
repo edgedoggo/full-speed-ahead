@@ -3,6 +3,8 @@
 const FSA_MODULE_ID = "full-speed-ahead";
 const FSA_SOCKET = `module.${FSA_MODULE_ID}`;
 const FSA_DESTROYED_FLAG = "destroyedUnequipped";
+const FSA_GLAXON_FLAG = "glaxonInsured";
+const FSA_GLAXON_MIGRATION_FLAG = "glaxonInsuranceMigrated";
 const FSA_HEAT_SINK_CARD_SELECTOR = "[data-fsa-heat-sink], [data-fsa-heat-sink-no]";
 const FSA_STRUCTURAL_SYNC_DELAY_MS = 500;
 const FSA_DEFAULT_DATA = { pendingCarryover: {} };
@@ -30,18 +32,49 @@ class TradeHubIntegrationAdapter {
     }
 
     static capitalAvailable() {
-        return this.isAvailable() && typeof this.data().capital !== "undefined";
+        return this.isAvailable() && (typeof game.tradehub?.capital === "function" || typeof game.tradehub?.getCapital === "function" || typeof this.data().capital !== "undefined");
     }
 
     static capital() {
+        if (this.isAvailable()) {
+            const publicCapital = typeof game.tradehub?.capital === "function" ? game.tradehub.capital() : typeof game.tradehub?.getCapital === "function" ? game.tradehub.getCapital() : null;
+            if (Number.isFinite(Number(publicCapital))) return Number(publicCapital);
+        }
         return Number(this.data().capital || 0);
     }
 
     static async setCapital(value) {
         if (!this.capitalAvailable()) throw new Error("TradeHub billing is unavailable.");
+        if (!game.user?.isGM) throw new Error("Only the active GM can update TradeHub Capital.");
+        const clamped = Math.max(0, Number(value || 0));
+        if (typeof game.tradehub?.setCapital === "function") {
+            await game.tradehub.setCapital(clamped);
+            this.refreshTradeHub();
+            return;
+        }
         const data = this.data();
-        data.capital = Math.max(0, Number(value || 0));
+        data.capital = clamped;
         await game.settings.set("tradehub-markets", "data", data);
+        this.refreshTradeHub();
+    }
+
+    static async bill(amount) {
+        const cost = Math.max(0, Number(amount || 0));
+        if (!cost) return { charged: 0, unpaid: 0, remaining: this.capitalAvailable() ? this.capital() : 0 };
+        if (!this.capitalAvailable()) throw new Error("TradeHub Capital is unavailable. Install/enable TradeHub Markets or configure an FSA currency provider before using capital-billing actions.");
+        const current = this.capital();
+        const charged = Math.min(current, cost);
+        const remaining = Math.max(0, current - cost);
+        await this.setCapital(remaining);
+        return { charged, unpaid: Math.max(0, cost - current), remaining };
+    }
+
+    static async requireAndBill(amount) {
+        const cost = Math.max(0, Number(amount || 0));
+        if (!this.capitalAvailable()) throw new Error("TradeHub Capital is unavailable. Install/enable TradeHub Markets or configure an FSA currency provider before using capital-billing actions.");
+        if (this.capital() < cost) throw new Error("Not enough TradeHub Capital.");
+        await this.setCapital(this.capital() - cost);
+        return { charged: cost, unpaid: 0, remaining: this.capital() };
     }
 
     static repairCostPerHp() {
@@ -53,7 +86,18 @@ class TradeHubIntegrationAdapter {
     }
 
     static isGlaxonInsured(actor) {
-        return actor?.getFlag?.("tradehub-markets", "glaxonInsured") === true || actor?.getFlag?.(FSA_MODULE_ID, "glaxonInsured") === true;
+        return actor?.getFlag?.("tradehub-markets", FSA_GLAXON_FLAG) === true || actor?.getFlag?.(FSA_MODULE_ID, FSA_GLAXON_FLAG) === true;
+    }
+
+    static async setGlaxonInsured(actor, insured) {
+        if (!actor) return;
+        if (insured) {
+            await actor.setFlag(FSA_MODULE_ID, FSA_GLAXON_FLAG, true);
+            await actor.setFlag("tradehub-markets", FSA_GLAXON_FLAG, true);
+        } else {
+            await actor.unsetFlag(FSA_MODULE_ID, FSA_GLAXON_FLAG);
+            await actor.unsetFlag("tradehub-markets", FSA_GLAXON_FLAG);
+        }
     }
 
     static locations() {
@@ -220,6 +264,10 @@ class VehicleModuleService {
         return Array.from(actor?.items ?? []).find(item => /heat sink/i.test(item.name || "") && Number(item.system?.quantity ?? 1) > 0);
     }
 
+    static hydrogenFuel(actor) {
+        return Array.from(actor?.items ?? []).find(item => item.name?.toLowerCase() === "hydrogen fuel" && ["loot", "consumable"].includes(item.type));
+    }
+
     static async consumeHeatSink(actor) {
         const heatSink = this.heatSink(actor);
         if (!heatSink) return false;
@@ -270,6 +318,33 @@ class VehicleModuleService {
         const moduleValue = modules.reduce((sum, item) => sum + parseNumber(item.system?.price?.value ?? item.system?.price ?? 0), 0);
         const shipCost = parseNumber(actor.system?.traits?.dimensions || 0);
         return { modules, totalMaxHp, shieldHp, averageAc, moduleValue, shipCost, totalValue: shipCost + moduleValue, hyperdrive: VehicleScanService.hyperdriveRange(actor) };
+    }
+
+    static shipValue(actor) {
+        return parseNumber(actor?.system?.traits?.dimensions || 0) + parseNumber(actor?.system?.details?.source?.custom || 0);
+    }
+
+    static upkeepCost(actor) {
+        return Math.floor(this.shipValue(actor) * 0.002);
+    }
+
+    static fullRepairValue(actor) {
+        return this.damageableModules(actor).reduce((total, item) => total + this.itemMaxHp(item) * VehicleRepairService.unitCost(item), 0);
+    }
+
+    static glaxonPremium(actor) {
+        const value = this.fullRepairValue(actor);
+        return value > 0 ? Math.ceil(value * 0.05) : 0;
+    }
+
+    static wantedCrew(actor) {
+        const crew = actor?.system?.cargo?.crew || [];
+        const entries = Array.isArray(crew) ? crew : Object.values(crew);
+        return entries.some(member => String(typeof member === "string" ? member : member?.name ?? member?.label ?? "").includes("[Wanted]"));
+    }
+
+    static registrationCost(actor) {
+        return this.wantedCrew(actor) ? 4000 : 2000;
     }
 
     static async syncVehicleStatsFromModules(actor, { restore = false, reason = "Loadout updated", chat = false, userId = game.user.id } = {}) {
@@ -425,9 +500,18 @@ class VehicleHeatSinkService {
 class VehicleCargoJettisonService {
     static cargoStats(actor) {
         const base = Number(actor?.system?.attributes?.capacity?.cargo || 0) * 2000;
+        let bonus = 0;
+        for (const effect of actor?.effects ?? []) {
+            const label = effect.label || effect.name || effect.data?.label || "";
+            if (!label.toLowerCase().includes("cargo bay")) continue;
+            for (const change of effect.changes || effect.data?.changes || []) {
+                if (String(change.key).includes("attributes.capacity.cargo")) bonus += parseNumber(change.value);
+            }
+        }
         const items = Array.from(actor?.items ?? []).filter(item => ["consumable", "loot"].includes(item.type));
         const current = items.reduce((total, item) => total + Number(item.system?.weight || 0) * Number(item.system?.quantity || 0), 0);
-        return { max: base, current, remaining: base - current };
+        const max = base + bonus;
+        return { max, current, remaining: max - current };
     }
 
     static async jettison(actor, context = {}) {
@@ -783,10 +867,16 @@ class VehicleScanService {
     }
 
     static parseHyperdriveFormula(item) {
-        const candidates = [item.system?.source?.custom, item.system?.details?.source?.custom, item.system?.formula, item.system?.description?.value, item.system?.description?.chat, ...stringsFromValue(item.system)];
+        const customCandidates = [item.system?.source?.custom, item.system?.details?.source?.custom];
+        for (const text of customCandidates) {
+            const plain = stripHtml(text);
+            const match = plain.match(/^\s*(\d+d\d+(?:\s*[+-]\s*\d+)?)\s*(?:LY|light\s*years?)?\s*$/i);
+            if (match) return `${normalizeDiceFormula(match[1])} LY`;
+        }
+        const candidates = [item.system?.formula, item.system?.description?.value, item.system?.description?.chat, item.system?.description?.unidentified, ...stringsFromValue(item.system)];
         for (const text of candidates) {
             const plain = stripHtml(text);
-            const match = plain.match(/(\d+d\d+(?:\s*[+-]\s*\d+)?)\s*(?:LY|light\s*years?)/i) || plain.match(/^\s*(\d+d\d+(?:\s*[+-]\s*\d+)?)\s*$/i);
+            const match = plain.match(/(\d+d\d+(?:\s*[+-]\s*\d+)?)\s*(?:LY|light\s*years?)/i);
             if (match) return `${normalizeDiceFormula(match[1])} LY`;
         }
         return "";
@@ -825,6 +915,262 @@ class VehicleFuelService {
     }
 }
 
+class VehicleSheetToolService {
+    static actorPayload(actor) {
+        return { actorId: actor?.id || "", actorUuid: actor?.uuid || "" };
+    }
+
+    static showLoadout(actor) {
+        if (!actor || actor.type !== "vehicle") return ui.notifications.error("Selected vehicle not found.");
+        VehicleOperationsSocketService.request("postVehicleLoadout", this.actorPayload(actor));
+    }
+
+    static confirmLongRest(actor) {
+        if (!actor || actor.type !== "vehicle") return ui.notifications.error("Selected vehicle not found.");
+        const value = VehicleModuleService.shipValue(actor);
+        const upkeep = VehicleModuleService.upkeepCost(actor);
+        const insured = TradeHubIntegrationAdapter.isGlaxonInsured(actor);
+        const premium = insured ? VehicleModuleService.glaxonPremium(actor) : 0;
+        const total = upkeep + premium;
+        Dialog.confirm({
+            title: "Long Rest Confirmation",
+            content: `<div class="fsa-chat-card fsa-center">
+                <p>When your vehicle takes a Long Rest, shields recharge and crew/item uses are restored.</p>
+                <p>Equipment condition will not change unless repaired. Destroyed modules remain offline.</p>
+                <p><strong>Ship Value:</strong> ${formatGp(value)}<br><strong>Upkeep:</strong> ${formatGp(upkeep)}<br><strong>Glaxon Premium:</strong> ${insured ? formatGp(premium) : "Not insured"}<br><strong>Total Due:</strong> ${formatGp(total)}</p>
+            </div>`,
+            yes: () => VehicleOperationsSocketService.request("shipLongRest", this.actorPayload(actor)),
+            no: () => {},
+            defaultYes: false
+        });
+    }
+
+    static showRegistration(actor) {
+        if (!actor || actor.type !== "vehicle") return ui.notifications.error("Selected vehicle not found.");
+        const cost = VehicleModuleService.registrationCost(actor);
+        const insured = TradeHubIntegrationAdapter.isGlaxonInsured(actor);
+        const premium = VehicleModuleService.glaxonPremium(actor);
+        const fullValue = VehicleModuleService.fullRepairValue(actor);
+        new Dialog({
+            title: "Ship Registration",
+            content: `<div class="fsa-chat-card">
+                <p>At any point, you can reregister your ship's designation. If any listed crew member is <strong>[Wanted]</strong>, the cost is doubled.</p>
+                <label><strong>Enter Vehicle Name:</strong></label>
+                <input type="text" id="fsa-vessel-name" value="${escapeHtml(actor.name)}">
+                <p><strong>Cost:</strong> ${formatGp(cost)}</p>
+                <hr>
+                <p><strong>Glaxon Insurance:</strong> ${insured ? `<span class="fsa-green">Active</span>` : "Not insured"}<br>
+                Insure my vehicle at a base premium of 5% total repair value per long rest.<br>
+                <strong>Benefit:</strong> 50% off eligible repair costs while insured.<br>
+                <strong>Full Repair Value:</strong> ${formatGp(fullValue)}<br>
+                <strong>Premium per Long Rest:</strong> ${formatGp(premium)}</p>
+            </div>`,
+            buttons: {
+                pay: {
+                    label: "Change Ship Name",
+                    callback: html => {
+                        const name = String(html.find("#fsa-vessel-name").val() || "").trim();
+                        if (!name) return ui.notifications.error("You must enter a valid vessel name.");
+                        VehicleOperationsSocketService.request("shipRegister", { ...this.actorPayload(actor), name });
+                    }
+                },
+                insure: {
+                    label: insured ? "Cancel Coverage" : "Insure My Vehicle",
+                    callback: () => VehicleOperationsSocketService.request("shipInsurance", { ...this.actorPayload(actor), insured: !insured })
+                },
+                cancel: { label: "Cancel" }
+            }
+        }, { width: 460 }).render(true);
+    }
+
+    static showFuelRelease(actor) {
+        if (!actor || actor.type !== "vehicle") return ui.notifications.error("Selected vehicle not found.");
+        new Dialog({
+            title: "Emergency Hydrogen Fuel Release",
+            content: `<div class="fsa-chat-card">
+                <label>Hydrogen (tonnes):</label>
+                <input type="number" id="fsa-fuel-tonnes" value="1" min="0">
+                <p>1 tonne of Hydrogen fuel covers 1 hyperdrive jump, or 1 LY and 1 day of supercruise travel.</p>
+            </div>`,
+            buttons: {
+                warning: {
+                    label: "<strong>Purge Hydrogen</strong>",
+                    callback: async html => {
+                        const quantity = Number(html.find("#fsa-fuel-tonnes").val() || 0);
+                        if (quantity < 0) return ui.notifications.error("Invalid value.");
+                        const confirmed = await Dialog.confirm({
+                            title: "WARNING: HAZARDOUS OPERATION",
+                            content: `<div style="color:red;font-weight:bold;">WARNING: DO NOT release hydrogen near heat or open flame. Contents under pressure.</div><p>Are you sure you want to proceed?</p>`,
+                            yes: () => true,
+                            no: () => false,
+                            defaultYes: false
+                        });
+                        if (confirmed) VehicleOperationsSocketService.request("shipFuelPurge", { ...this.actorPayload(actor), quantity });
+                    }
+                },
+                cancel: { label: "Cancel" }
+            }
+        }, { width: 460 }).render(true);
+    }
+
+    static sheetHtml() {
+        return `<div class="full-speed-ahead-sheet-tools">
+            <button type="button" data-fsa-sheet-tool="rest"><i class="fas fa-bed"></i> Long Rest</button>
+            <button type="button" data-fsa-sheet-tool="registration"><i class="fas fa-registered"></i> Registration</button>
+            <button type="button" data-fsa-sheet-tool="loadout"><i class="fas fa-print"></i> Chat Loadout</button>
+            <button type="button" data-fsa-sheet-tool="fuel"><i class="fas fa-fire"></i> Fuel Release</button>
+        </div>`;
+    }
+}
+
+class VehicleSheetToolTransactions {
+    static resolveActor(payload = {}) {
+        const actor = (payload.actorUuid ? fromUuidSyncSafe(payload.actorUuid) : null) || game.actors.get(payload.actorId);
+        if (!actor || actor.type !== "vehicle") throw new Error("Selected vehicle not found.");
+        return actor;
+    }
+
+    static assertUserCanUse(actor, userId) {
+        const user = game.users.get(userId);
+        if (user?.isGM) return;
+        if (!vehicleOperationsHasOwnerPermission(actor, user)) throw new Error("You must own this vehicle to use Full Speed Ahead vehicle sheet tools.");
+    }
+
+    static async postLoadout(payload, userId) {
+        const actor = this.resolveActor(payload);
+        this.assertUserCanUse(actor, userId);
+        await VehicleChatCardService.create({ user: userId, speaker: { alias: "Full Speed Ahead Loadout" }, content: this.loadoutContent(actor) });
+    }
+
+    static loadoutContent(actor) {
+        const stats = VehicleCargoJettisonService.cargoStats(actor);
+        const cargoItems = Array.from(actor.items ?? []).filter(item => ["loot", "consumable"].includes(item.type) && Number(item.system?.quantity || 0) > 0);
+        const modules = VehicleModuleService.damageableModules(actor);
+        const cargoValue = cargoItems.reduce((total, item) => total + parseNumber(item.system?.price?.value ?? item.system?.price ?? 0) * Number(item.system?.quantity || 0), 0);
+        const shieldHp = modules.filter(module => VehicleModuleService.isShield(module)).reduce((total, module) => total + Number(module.system?.hp?.value || 0), 0);
+        const fuel = VehicleModuleService.hydrogenFuel(actor);
+        const insured = TradeHubIntegrationAdapter.isGlaxonInsured(actor);
+        const moduleList = modules.length ? modules.map(module => `<li>${escapeHtml(module.name)}</li>`).join("") : "<li>None</li>";
+        return `<div class="fsa-chat-card">
+            <strong>${escapeHtml(actor.name)}</strong><br>
+            Current HP: ${Number(actor.system?.attributes?.hp?.value || 0)} HP<br>
+            Current Shield HP: ${shieldHp} HP<br>
+            Maximum Jump Distance: ${escapeHtml(VehicleScanService.hyperdriveRange(actor))}<br>
+            Ship Value: ${formatGp(VehicleModuleService.shipValue(actor))}<br>
+            Glaxon Insurance: ${insured ? `Active (${formatGp(VehicleModuleService.glaxonPremium(actor))} / Long Rest)` : "Not insured"}<br>
+            AC: ${Number(actor.system?.attributes?.ac?.value || 0)}<br><br>
+            <strong>Equipped Modules:</strong><ul>${moduleList}</ul>
+            <strong>Cargo:</strong><br>
+            Cargo Capacity: ${Math.floor(stats.max).toLocaleString()} lbs<br>
+            Current Cargo Weight: ${Math.floor(stats.current).toLocaleString()} lbs<br>
+            Total Cargo Value: ${formatGp(cargoValue)}<br>
+            Hydrogen Fuel Quantity: ${Number(fuel?.system?.quantity || 0)} tonnes<br>
+            ${stats.remaining >= 0 ? `<span class="fsa-green">${Math.floor(stats.remaining).toLocaleString()} lbs of cargo space remaining.</span>` : `<span class="fsa-illegal">WARNING: OVERWEIGHT<br>Hyperdrive Disabled</span>`}
+        </div>`;
+    }
+
+    static async longRest(payload, userId) {
+        const actor = this.resolveActor(payload);
+        this.assertUserCanUse(actor, userId);
+        const value = VehicleModuleService.shipValue(actor);
+        const upkeep = VehicleModuleService.upkeepCost(actor);
+        const insured = TradeHubIntegrationAdapter.isGlaxonInsured(actor);
+        const premium = insured ? VehicleModuleService.glaxonPremium(actor) : 0;
+        const totalCost = upkeep + premium;
+        const billing = await TradeHubIntegrationAdapter.bill(totalCost);
+
+        for (const item of actor.items ?? []) {
+            const uses = item.system?.uses;
+            if (uses?.max) await item.update({ "system.uses.value": uses.max }, { fullSpeedAheadVehicleOperation: true });
+            if (VehicleModuleService.isEquippedShipModule(item) && VehicleModuleService.isShield(item)) {
+                await item.update({ "system.hp.value": Number(item.system?.hp?.max || item.system?.hp?.value || 0) }, { fullSpeedAheadVehicleOperation: true });
+            }
+        }
+
+        const modules = VehicleModuleService.damageableModules(actor).filter(item => !VehicleModuleService.isShield(item));
+        const totalModuleHp = modules.reduce((total, item) => total + Number(item.system?.hp?.value || 0), 0);
+        await actor.update({ "system.attributes.hp.min": totalModuleHp }, { fullSpeedAheadVehicleOperation: true });
+        await VehicleTokenEffectService.refresh(actor);
+
+        if (billing.unpaid > 0) {
+            await ChatMessage.create({
+                content: `Long rest costs of ${formatGp(billing.unpaid)} were not fully paid. During the next adventuring day, equipment or insurance service may fail unexpectedly at the GM's discretion.`,
+                whisper: ChatMessage.getWhisperRecipients("GM")
+            });
+        }
+
+        await VehicleChatCardService.create({
+            user: userId,
+            speaker: { alias: "Full Speed Ahead Ship Maintenance" },
+            content: `<strong style="color:green;">SHIP MAINTENANCE</strong><br>
+                Each long rest, the ship handles air filtration, water purification, waste management, sanitation, upkeep, laundry, and diagnostics.<br><br>
+                <strong>Ship Name:</strong> ${escapeHtml(actor.name)}<br>
+                <strong>Ship Value:</strong> ${formatGp(value)}<br>
+                <strong>Upkeep Cost:</strong> ${formatGp(upkeep)}<br>
+                ${insured ? `<strong>Glaxon Premium:</strong> ${formatGp(premium)}<br><strong>Total Long Rest Cost:</strong> ${formatGp(totalCost)}<br>` : ""}
+                <strong>TradeHub Capital:</strong> ${TradeHubIntegrationAdapter.capitalAvailable() ? formatGp(TradeHubIntegrationAdapter.capital()) : "Unavailable"}<br>
+                <em>Shields and item uses restored. Equipment condition was not repaired. Vessel HP minimum now reflects equipment condition.</em>`
+        });
+        refreshVehicleOperationInterfaces(actor);
+    }
+
+    static async register(payload, userId) {
+        const actor = this.resolveActor(payload);
+        this.assertUserCanUse(actor, userId);
+        const name = String(payload.name || "").trim();
+        if (!name) throw new Error("You must enter a valid vessel name.");
+        const cost = VehicleModuleService.registrationCost(actor);
+        const oldName = actor.name;
+        const startingCapital = TradeHubIntegrationAdapter.capital();
+        await TradeHubIntegrationAdapter.requireAndBill(cost);
+        try {
+            await actor.update({ name }, { fullSpeedAheadVehicleOperation: true });
+        } catch (error) {
+            await TradeHubIntegrationAdapter.setCapital(startingCapital).catch(restoreError => {
+                console.error(`${FSA_MODULE_ID} | Failed to restore TradeHub Capital after registration failed.`, restoreError);
+            });
+            throw error;
+        }
+        await VehicleChatCardService.create({
+            user: userId,
+            content: `<strong>${escapeHtml(game.users.get(userId)?.name || "A player")}</strong> updated the registration for <strong>${escapeHtml(oldName)}</strong>.<br>New designation: <strong>${escapeHtml(name)}</strong><br><strong>Cost:</strong> ${formatGp(cost)}<br><strong>TradeHub Capital:</strong> ${formatGp(TradeHubIntegrationAdapter.capital())}`
+        });
+        refreshVehicleOperationInterfaces(actor);
+    }
+
+    static async insurance(payload, userId) {
+        const actor = this.resolveActor(payload);
+        this.assertUserCanUse(actor, userId);
+        const active = payload.insured !== false;
+        await TradeHubIntegrationAdapter.setGlaxonInsured(actor, active);
+        await VehicleChatCardService.create({
+            user: userId,
+            speaker: { alias: "Glaxon Insurance" },
+            content: active
+                ? `<strong>Glaxon Insurance Activated</strong><br><strong>${escapeHtml(actor.name)}</strong> now receives 50% off repair costs while insured.<br><strong>Premium per Long Rest:</strong> ${formatGp(VehicleModuleService.glaxonPremium(actor))}<br><strong>Full Repair Value:</strong> ${formatGp(VehicleModuleService.fullRepairValue(actor))}<br><em>Premiums are billed when the Long Rest button is used.</em>`
+                : `<strong>Glaxon Insurance Cancelled</strong><br><strong>${escapeHtml(actor.name)}</strong> no longer receives the Glaxon repair discount and will not be billed a Glaxon premium on Long Rest.`
+        });
+        refreshVehicleOperationInterfaces(actor);
+    }
+
+    static async fuelPurge(payload, userId) {
+        const actor = this.resolveActor(payload);
+        this.assertUserCanUse(actor, userId);
+        const item = VehicleModuleService.hydrogenFuel(actor);
+        if (!item) throw new Error("Hydrogen Fuel item not found.");
+        const amount = Math.max(0, Number(payload.quantity || 0));
+        const available = Number(item.system?.quantity || 0);
+        const purged = Math.min(available, amount);
+        const remaining = Math.max(0, available - purged);
+        await item.update({ "system.quantity": remaining }, { fullSpeedAheadVehicleOperation: true });
+        await VehicleChatCardService.create({
+            user: userId,
+            content: `<strong>${escapeHtml(actor.name)}</strong><br>${purged} tonnes of Hydrogen purged.<br><em>1 tonne of Hydrogen fuel covers 1 hyperdrive jump, or 1 LY and 1 day of supercruise travel.</em>${remaining <= 0 ? `<br><span style="color:red;font-weight:bold;">WARNING: OUT OF FUEL</span>` : ""}`
+        });
+        refreshVehicleOperationInterfaces(actor);
+    }
+}
+
 class VehicleChatCardService {
     static async create(data) {
         return ChatMessage.create({ user: game.user.id, ...data });
@@ -839,9 +1185,16 @@ class VehicleOperationsSocketService {
     static request(action, payload = {}) {
         if (game.user.isGM) return this.process({ action, payload, userId: game.user.id });
         game.socket.emit(FSA_SOCKET, { type: "vehicleOperationsRequest", action, payload, userId: game.user.id });
+        ui.notifications.info("Full Speed Ahead request sent to the GM client.");
     }
 
     static async handle(message) {
+        if (message?.type === "vehicleOperationsRefresh") return refreshVehicleOperationInterfaces(null, { broadcast: false });
+        if (message?.type === "vehicleOperationsResponse" && message.userId === game.user.id) {
+            if (message.ok) ui.notifications.info(message.message || "Full Speed Ahead request complete.");
+            else ui.notifications.error(message.message || "Full Speed Ahead request failed.");
+            return;
+        }
         if (message?.type !== "vehicleOperationsRequest" || !game.user.isGM) return;
         await this.process(message);
     }
@@ -849,15 +1202,25 @@ class VehicleOperationsSocketService {
     static async process(message) {
         try {
             if (!game.settings.get(FSA_MODULE_ID, "vehicleOpsEnabled")) throw new Error("Full Speed Ahead vehicle operations are disabled.");
-            if (message.action === "applyVehicleDamage") return VehicleDamageService.apply(message.payload, message.userId);
-            if (message.action === "performVehicleScan") return VehicleScanService.scan(message.payload, message.userId);
-            if (message.action === "repairVehicle") return VehicleRepairService.repair(message.payload, message.userId);
-            if (message.action === "grantHydrogenFuel") return VehicleFuelService.grant(message.payload, message.userId);
-            if (message.action === "deployHeatSink") return VehicleHeatSinkService.resolve(message.payload.choiceId, true, message.userId, message.payload.messageId);
-            if (message.action === "declineHeatSink") return VehicleHeatSinkService.resolve(message.payload.choiceId, false, message.userId, message.payload.messageId);
+            let result;
+            if (message.action === "applyVehicleDamage") result = await VehicleDamageService.apply(message.payload, message.userId);
+            else if (message.action === "performVehicleScan") result = await VehicleScanService.scan(message.payload, message.userId);
+            else if (message.action === "repairVehicle") result = await VehicleRepairService.repair(message.payload, message.userId);
+            else if (message.action === "grantHydrogenFuel") result = await VehicleFuelService.grant(message.payload, message.userId);
+            else if (message.action === "postVehicleLoadout") result = await VehicleSheetToolTransactions.postLoadout(message.payload, message.userId);
+            else if (message.action === "shipLongRest") result = await VehicleSheetToolTransactions.longRest(message.payload, message.userId);
+            else if (message.action === "shipRegister") result = await VehicleSheetToolTransactions.register(message.payload, message.userId);
+            else if (message.action === "shipInsurance") result = await VehicleSheetToolTransactions.insurance(message.payload, message.userId);
+            else if (message.action === "shipFuelPurge") result = await VehicleSheetToolTransactions.fuelPurge(message.payload, message.userId);
+            else if (message.action === "deployHeatSink") result = await VehicleHeatSinkService.resolve(message.payload.choiceId, true, message.userId, message.payload.messageId);
+            else if (message.action === "declineHeatSink") result = await VehicleHeatSinkService.resolve(message.payload.choiceId, false, message.userId, message.payload.messageId);
+            else throw new Error(`Unknown Full Speed Ahead vehicle operation: ${message.action || "unknown"}.`);
+            if (message.userId !== game.user.id) game.socket.emit(FSA_SOCKET, { type: "vehicleOperationsResponse", userId: message.userId, ok: true, message: "Full Speed Ahead request complete." });
+            return result;
         } catch (error) {
             console.error(`${FSA_MODULE_ID} | Vehicle operation failed.`, error);
             ui.notifications.error(error.message || "Vehicle operation failed.");
+            if (message.userId !== game.user.id) game.socket.emit(FSA_SOCKET, { type: "vehicleOperationsResponse", userId: message.userId, ok: false, message: error.message || "Vehicle operation failed." });
         }
     }
 }
@@ -894,16 +1257,8 @@ class VehicleOperationsApplication extends FormApplication {
 
     static openSettings() {
         if (game.fullSpeedAhead?.openSettings) return game.fullSpeedAhead.openSettings();
-        const settings = game.settings?.sheet || (globalThis.SettingsConfig ? new globalThis.SettingsConfig() : null);
-        if (settings?.render) {
-            settings.render(true);
-            window.setTimeout(() => {
-                const html = settings?.element;
-                const filter = html?.find?.('input[name="filter"], input[type="search"], input[placeholder*="Filter"], input[placeholder*="Search"]')?.first();
-                if (filter?.length) filter.val("Full Speed Ahead").trigger("input").trigger("keyup").trigger("change");
-            }, 150);
-        }
-        else ui.notifications.info("Open Configure Settings to edit Full Speed Ahead settings.");
+        ui.notifications.info("Full Speed Ahead settings are not available yet.");
+        return null;
     }
 
     get target() {
@@ -1122,6 +1477,7 @@ Hooks.once("init", () => {
 
 Hooks.once("ready", () => {
     VehicleOperationsSocketService.init();
+    if (game.user.isGM) migrateGlaxonInsuranceFlags().catch(error => console.warn(`${FSA_MODULE_ID} | Glaxon insurance migration failed.`, error));
     game.fullSpeedAhead = game.fullSpeedAhead || {};
     game.fullSpeedAhead.vehicleOperations = {
         open: tab => VehicleOperationsApplication.open(tab),
@@ -1133,9 +1489,12 @@ Hooks.once("ready", () => {
 });
 
 Hooks.on("canvasReady", () => FullSpeedAheadFloatingMenu.render());
+Hooks.on("renderActorSheet", injectFsaVehicleSheetTools);
+Hooks.on("renderTidy5eActorSheet", injectFsaVehicleSheetTools);
+Hooks.on("renderTidy5eSheet", injectFsaVehicleSheetTools);
 
 Hooks.on("getSceneControlButtons", controls => {
-    if (!game.user.isGM && !game.settings.get(FSA_MODULE_ID, "vehicleOpsPlayersCanOpen")) return;
+    if (!game.user.isGM && !game.settings.get(FSA_MODULE_ID, "vehicleOpsShowFloatingMenuPlayers")) return;
     const tokenControls = Array.isArray(controls) ? controls.find(control => control.name === "token") : controls?.token;
     const tools = Array.isArray(tokenControls?.tools) ? tokenControls.tools : null;
     if (!tools || tools.some(tool => tool.name === "full-speed-ahead-vehicle-operations")) return;
@@ -1177,7 +1536,94 @@ function shouldScheduleVehicleModuleSync(item, options = {}) {
 function canShowFsaFloatingMenu() {
     if (!game.settings.get(FSA_MODULE_ID, "vehicleOpsEnabled")) return false;
     if (game.user.isGM) return true;
-    return game.settings.get(FSA_MODULE_ID, "vehicleOpsPlayersCanOpen") && game.settings.get(FSA_MODULE_ID, "vehicleOpsShowFloatingMenuPlayers");
+    return game.settings.get(FSA_MODULE_ID, "vehicleOpsShowFloatingMenuPlayers");
+}
+
+function injectFsaVehicleSheetTools(app, html) {
+    const actor = app?.actor || app?.document;
+    if (!game.settings.get(FSA_MODULE_ID, "vehicleSheetToolsEnabled")) return;
+    if (!actor || actor.type !== "vehicle") return;
+    if (!vehicleOperationsHasOwnerPermission(actor, game.user)) return;
+    const root = html?.jquery ? html : $(html);
+    if (!root?.length) return;
+    placeFsaVehicleSheetTools(root, actor);
+    window.setTimeout(() => placeFsaVehicleSheetTools(root, actor), 100);
+}
+
+function placeFsaVehicleSheetTools(root, actor) {
+    if (root.find(".full-speed-ahead-sheet-tools").length) return;
+    const panel = $(VehicleSheetToolService.sheetHtml());
+    const target = findFsaConditionImmunityInsertion(root);
+    if (target?.length) target.after(panel);
+    else {
+        const fallback = root.find(".traits, .attributes, .sheet-sidebar, .sidebar, .left-pane, .left-column").first();
+        if (fallback.length) fallback.append(panel);
+        else root.find("form").first().prepend(panel);
+    }
+    bindFsaVehicleSheetTools(panel, actor);
+}
+
+function findFsaConditionImmunityInsertion(root) {
+    const conditionLabel = game.i18n.localize("DND5E.ConImm");
+    const tidyTrait = root.find('[data-tidy-sheet-part="actor-trait"]').filter((_index, element) => {
+        const trait = $(element);
+        const icon = trait.find(".trait-icon").first();
+        const label = icon.attr("title") || icon.attr("aria-label") || "";
+        return label === conditionLabel || /^Condition Immunities\b/i.test(trait.text().trim());
+    }).first();
+    if (tidyTrait.length) return tidyTrait;
+
+    const regularTrait = root.find(".traits .form-group").filter((_index, element) => {
+        const label = $(element).children("label").first().text().trim();
+        return label === conditionLabel || /^Condition Immunities\b/i.test(label);
+    }).first();
+    if (regularTrait.length) return regularTrait;
+
+    const labels = root.find("*").filter((_index, element) => {
+        const label = $(element).clone().children().remove().end().text().trim();
+        return label === conditionLabel || /^Condition Immunities\b/i.test(label);
+    });
+    for (const element of labels.toArray().reverse()) {
+        const preferred = $(element).closest('[data-tidy-sheet-part="actor-trait"], .trait-form-group, .form-group, .trait, .attribute, .card, li, section');
+        if (preferred.length && !preferred.is(root)) return preferred.first();
+        const fallback = $(element).closest("div");
+        if (fallback.length && !fallback.is(root)) return fallback.first();
+    }
+    return $();
+}
+
+function bindFsaVehicleSheetTools(panel, actor) {
+    panel.find("[data-fsa-sheet-tool]").on("click", event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const tool = event.currentTarget.dataset.fsaSheetTool;
+        if (tool === "loadout") return VehicleSheetToolService.showLoadout(actor);
+        if (tool === "rest") return VehicleSheetToolService.confirmLongRest(actor);
+        if (tool === "registration") return VehicleSheetToolService.showRegistration(actor);
+        if (tool === "fuel") return VehicleSheetToolService.showFuelRelease(actor);
+    });
+}
+
+async function migrateGlaxonInsuranceFlags() {
+    for (const actor of game.actors ?? []) {
+        if (actor.type !== "vehicle") continue;
+        if (actor.getFlag(FSA_MODULE_ID, FSA_GLAXON_MIGRATION_FLAG)) continue;
+        const legacyInsured = actor.getFlag("tradehub-markets", FSA_GLAXON_FLAG) === true;
+        const fsaInsured = actor.getFlag(FSA_MODULE_ID, FSA_GLAXON_FLAG) === true;
+        if (legacyInsured || fsaInsured) await TradeHubIntegrationAdapter.setGlaxonInsured(actor, true);
+        await actor.setFlag(FSA_MODULE_ID, FSA_GLAXON_MIGRATION_FLAG, true);
+    }
+}
+
+function refreshVehicleOperationInterfaces(actor = null, { broadcast = true } = {}) {
+    for (const app of Object.values(ui.windows ?? {})) {
+        if (!app?.rendered) continue;
+        const appActor = app.actor || app.document;
+        if (!actor || appActor?.id === actor.id || app.id === "full-speed-ahead-vehicle-operations") app.render(false);
+    }
+    VehicleOperationsApplication.current?.render(false);
+    TradeHubIntegrationAdapter.refreshTradeHub();
+    if (broadcast) game.socket?.emit?.(FSA_SOCKET, { type: "vehicleOperationsRefresh", actorId: actor?.id || "" });
 }
 
 function refreshFsaFloatingMenu() {
@@ -1189,7 +1635,7 @@ function registerVehicleOpsSettings() {
     const register = (key, data) => game.settings.register(FSA_MODULE_ID, key, { scope: "world", config: true, ...data });
     register("vehicleOperationsData", { name: "Vehicle Operations Data", type: Object, default: foundry.utils.deepClone(FSA_DEFAULT_DATA), config: false });
     register("vehicleOpsEnabled", { name: "Enable Vehicle Operations", hint: "Enable Full Speed Ahead's Apply Damage, Fuel Scooping, Mining Damage, Scans, Repair Ship, Heat Sink, and cargo failure tools.", type: Boolean, default: true, config: false, onChange: refreshFsaFloatingMenu });
-    register("vehicleOpsPlayersCanOpen", { name: "Players Can Open Vehicle Operations", hint: "Allow non-GM users to open the vehicle operations window. Mutations still execute through the GM.", type: Boolean, default: true, config: false, onChange: refreshFsaFloatingMenu });
+    register("vehicleSheetToolsEnabled", { name: "Show FSA Vehicle Sheet Tools", hint: "Show Long Rest, Registration, Chat Loadout, and Fuel Release controls on owned vehicle sheets.", type: Boolean, default: true, config: false });
     register("vehicleOpsShowFloatingMenuPlayers", { name: "Show FSA Floating Menu to Players", hint: "Show the draggable FSA floating operations menu to non-GM users.", type: Boolean, default: false, config: false, onChange: refreshFsaFloatingMenu });
     register("vehicleOpsFloatingMenuPosition", { name: "Vehicle Operations Floating Menu Position", type: Object, default: { left: 14, top: 125 }, config: false });
     register("vehicleOpsScansEnabled", { name: "Enable Vehicle Operation Scans", hint: "Allow Tactical, Manifest, and Wake scans from the vehicle operations window.", type: Boolean, default: true, config: false });

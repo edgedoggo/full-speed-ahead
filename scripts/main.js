@@ -504,6 +504,30 @@ class FullSpeedAheadTargetingCardsConfig extends FormApplication {
     }
 }
 
+class FullSpeedAheadSettingsHub extends FormApplication {
+    static get defaultOptions() {
+        return foundry.utils.mergeObject(super.defaultOptions, {
+            id: "full-speed-ahead-settings-hub",
+            title: "Full Speed Ahead",
+            template: `modules/${MODULE_ID}/templates/settings-hub.hbs`,
+            width: 620,
+            closeOnSubmit: false,
+            submitOnChange: false
+        });
+    }
+
+    activateListeners(html) {
+        super.activateListeners(html);
+
+        html.find("[data-open-fsa-settings]").on("click", event => {
+            event.preventDefault();
+            openFullSpeedAheadPanel(event.currentTarget.dataset.openFsaSettings);
+        });
+    }
+
+    async _updateObject() {}
+}
+
 Hooks.once("init", () => {
     console.log(`${LOG_PREFIX} Initializing...`);
 
@@ -1059,27 +1083,28 @@ function clampNumber(value, min, max, fallback) {
 }
 
 function openFullSpeedAheadSettings() {
-    const settings = game.settings?.sheet || (globalThis.SettingsConfig ? new globalThis.SettingsConfig() : null);
-    if (!settings?.render) {
-        ui.notifications.info("Open Configure Settings to edit Full Speed Ahead settings.");
-        return null;
-    }
-    settings.render(true);
-    window.setTimeout(() => focusFullSpeedAheadSettings(settings), 120);
-    window.setTimeout(() => focusFullSpeedAheadSettings(settings), 450);
-    return settings;
+    return new FullSpeedAheadSettingsHub().render(true);
 }
 
-function focusFullSpeedAheadSettings(settings) {
-    const html = settings?.element;
-    if (!html?.length) return;
-    const filter = html.find('input[name="filter"], input[type="search"], input[placeholder*="Filter"], input[placeholder*="Search"]').first();
-    if (filter.length) {
-        filter.val("Full Speed Ahead");
-        filter.trigger("input").trigger("keyup").trigger("change");
+function openFullSpeedAheadPanel(panel) {
+    if (panel === "effects") return new FullSpeedAheadEffectsConfig().render(true);
+    if (panel === "cosmetics") return new FullSpeedAheadCosmeticsConfig().render(true);
+    if (panel === "quicktarget") return new FullSpeedAheadTargetingCardsConfig().render(true);
+    if (panel === "combat") {
+        const opened = game.fullSpeedAhead?.openVehicleCombatSettings?.();
+        if (opened) return opened;
+        return openRegisteredFullSpeedAheadMenu("vehicleCombatConfig");
     }
-    const heading = html.find("h2,h3,h4,label,button,a").filter((_index, element) => (element.textContent || "").includes("Full Speed Ahead")).first();
-    if (heading.length) heading[0].scrollIntoView({ block: "start" });
+    return null;
+}
+
+function openRegisteredFullSpeedAheadMenu(menuKey) {
+    const key = `${MODULE_ID}.${menuKey}`;
+    const menu = game.settings?.menus?.get?.(key) ?? game.settings?.menus?.get?.(menuKey);
+    const MenuClass = menu?.type;
+    if (MenuClass) return new MenuClass().render(true);
+    ui.notifications.warn("That Full Speed Ahead settings panel is not available yet.");
+    return null;
 }
 
 function normalizeHexColor(value, fallback = DEFAULT_THRUSTER_COLOR) {

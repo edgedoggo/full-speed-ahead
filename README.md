@@ -20,6 +20,7 @@ Full Speed Ahead rotates vehicle tokens toward their movement destination, can s
 - Vehicle Combat Encounters panel with an optional mode that sends vehicle crew to initiative instead of the vehicle combatant.
 - Optional vehicle protection automation reads Shield Generator equipment HP and Morphogenetic Field equipment, with built-in FSA glow or TokenMagic visual modes.
 - Vehicle Operations window for vehicle damage, fuel scooping, mining damage, scans, repairs, Heat Sink decisions, and cargo failure handling.
+- FSA-owned vehicle sheet tools for Long Rest, Registration with Glaxon Insurance, Chat Loadout, and Fuel Release while TradeHub remains the source of capital and market data.
 - Movement sounds are broadcast once by the movement initiator to avoid doubled playback.
 - Independent character/non-vehicle and vehicle QuickTarget controls for players and GMs.
 - Token-control QuickTarget button for GMs and players.
