@@ -8,7 +8,7 @@ const FSA_GLAXON_MIGRATION_FLAG = "glaxonInsuranceMigrated";
 const FSA_HEAT_SINK_CARD_SELECTOR = "[data-fsa-heat-sink], [data-fsa-heat-sink-no]";
 const FSA_STRUCTURAL_SYNC_DELAY_MS = 500;
 const FSA_DEFAULT_DATA = { pendingCarryover: {} };
-const FSA_REPAIR_ACTIONS = new Set(["heal", "full-service", "pristine"]);
+const FSA_REPAIR_ACTIONS = new Set(["repair-module", "stabilize-module", "full-service", "pristine"]);
 const FSA_DAMAGE_CONTEXTS = new Set(["attack", "fuel", "mining"]);
 const fsaVehicleSyncTimers = new Map();
 
@@ -295,6 +295,21 @@ class VehicleModuleService {
             update[`flags.${FSA_MODULE_ID}.${FSA_DESTROYED_FLAG}`] = false;
         }
         await item.update(update, { fullSpeedAheadVehicleOperation: true });
+    }
+
+    static async repairEquippedModuleHp(item, hp) {
+        if (!this.isEquippedShipModule(item)) throw new Error(`${item?.name || "Module"} must be stabilized before it can be repaired.`);
+        const value = clampNumber(Number(hp || 0), 0, this.itemMaxHp(item), 0);
+        await item.update({ "system.hp.value": value }, { fullSpeedAheadVehicleOperation: true });
+    }
+
+    static async stabilizeModule(item) {
+        await item.update({
+            "system.hp.value": 1,
+            "system.equipped": true,
+            [`flags.${FSA_MODULE_ID}.${FSA_DESTROYED_FLAG}`]: false,
+            "flags.tradehub-markets.destroyedUnequipped": false
+        }, { fullSpeedAheadVehicleOperation: true });
     }
 
     static currentModuleHpTotal(actor) {
@@ -737,14 +752,16 @@ class VehicleRepairService {
     static async repair(payload, userId) {
         const { actor } = VehicleTargetResolver.resolve(payload);
         if (!actor || actor.type !== "vehicle") throw new Error("Selected vehicle not found.");
-        const action = FSA_REPAIR_ACTIONS.has(payload.action) ? payload.action : "heal";
+        const action = FSA_REPAIR_ACTIONS.has(payload.action) ? payload.action : "repair-module";
         if (action === "pristine") {
             if (!game.users.get(userId)?.isGM) throw new Error("Make Pristine is a GM-only vehicle maintenance action.");
             await VehicleModuleService.syncVehicleStatsFromModules(actor, { restore: true, chat: true, reason: "GM maintenance action. No billing applied.", userId });
         } else if (action === "full-service") {
             await this.fullService(actor, { billCapital: payload.billCapital !== false, userId });
+        } else if (action === "stabilize-module") {
+            await this.stabilize(actor, payload.targetModule, userId);
         } else {
-            await this.ability(actor, payload.targetModule, payload.hp, userId);
+            await this.repairModule(actor, payload.targetModule, payload.hp, userId);
         }
         TradeHubIntegrationAdapter.refreshTradeHub();
     }
@@ -768,7 +785,7 @@ class VehicleRepairService {
         });
     }
 
-    static async ability(actor, targetModule, hpToAdd, userId) {
+    static async repairModule(actor, targetModule, hpToAdd, userId) {
         let remaining = Math.max(0, Number(hpToAdd || 0));
         const repaired = new Map();
         const addDetail = (item, hp) => {
@@ -779,21 +796,22 @@ class VehicleRepairService {
         if (remaining > 0 && targetModule && targetModule !== "evenly") {
             const item = actor.items.get(targetModule);
             if (item) {
+                if (!VehicleModuleService.isEquippedShipModule(item)) throw new Error(`${item.name} is destroyed or unequipped. Stabilize the module before repairing it.`);
                 const add = Math.min(remaining, Math.max(0, VehicleModuleService.itemMaxHp(item) - VehicleModuleService.itemHp(item)));
                 if (add > 0) {
-                    await VehicleModuleService.restoreModuleHp(item, VehicleModuleService.itemHp(item) + add);
+                    await VehicleModuleService.repairEquippedModuleHp(item, VehicleModuleService.itemHp(item) + add);
                     addDetail(item, add);
                     remaining -= add;
                 }
             }
         } else {
-            let pool = VehicleModuleService.repairableModules(actor).filter(item => !VehicleModuleService.isShield(item) && VehicleModuleService.itemHp(item) < VehicleModuleService.itemMaxHp(item));
+            let pool = VehicleModuleService.damageableModules(actor).filter(item => !VehicleModuleService.isShield(item) && VehicleModuleService.itemHp(item) > 0 && VehicleModuleService.itemHp(item) < VehicleModuleService.itemMaxHp(item));
             while (remaining > 0 && pool.length) {
                 for (const item of [...pool]) {
                     if (remaining <= 0) break;
                     const add = Math.min(1, VehicleModuleService.itemMaxHp(item) - VehicleModuleService.itemHp(item));
                     if (add > 0) {
-                        await VehicleModuleService.restoreModuleHp(item, VehicleModuleService.itemHp(item) + add);
+                        await VehicleModuleService.repairEquippedModuleHp(item, VehicleModuleService.itemHp(item) + add);
                         addDetail(item, add);
                         remaining -= add;
                     }
@@ -809,6 +827,23 @@ class VehicleRepairService {
         const totalHp = await VehicleModuleService.syncVehicleHpFromModules(actor);
         await VehicleTokenEffectService.refresh(actor);
         await VehicleChatCardService.create({ user: userId, speaker: { alias: "Full Speed Ahead Vehicle Repair" }, content: `<b style="color:green;">SUCCESS: MODULES REPAIRED!</b><br><b>${escapeHtml(actor.name)}</b><br><b>Modules Repaired:</b><br>${details.join("<br>")}<br><b>Total HP Restored:</b> ${[...repaired.values()].reduce((s, e) => s + e.hp, 0)}<br><b>Vehicle HP:</b> ${totalHp}` });
+    }
+
+    static async stabilize(actor, targetModule, userId) {
+        const item = targetModule && targetModule !== "evenly"
+            ? actor.items.get(targetModule)
+            : VehicleModuleService.repairableModules(actor).find(module => VehicleModuleService.wasDestroyed(module) || !VehicleModuleService.isEquippedShipModule(module) || VehicleModuleService.itemHp(module) <= 0);
+        if (!item) throw new Error("Choose a destroyed module to stabilize.");
+        if (!VehicleModuleService.isShipModuleItem(item)) throw new Error(`${item.name} is not a vehicle module.`);
+        if (VehicleModuleService.isEquippedShipModule(item) && VehicleModuleService.itemHp(item) > 0) throw new Error(`${item.name} is already stabilized.`);
+        await VehicleModuleService.stabilizeModule(item);
+        const totalHp = await VehicleModuleService.syncVehicleHpFromModules(actor);
+        await VehicleTokenEffectService.refresh(actor);
+        await VehicleChatCardService.create({
+            user: userId,
+            speaker: { alias: "Full Speed Ahead Vehicle Repair" },
+            content: `<b style="color:green;">SUCCESS: MODULE STABILIZED!</b><br><b>${escapeHtml(actor.name)}</b><br>${escapeHtml(item.name)} is equipped and restored to 1 HP.<br><b>Vehicle HP:</b> ${totalHp}`
+        });
     }
 }
 
@@ -1282,13 +1317,15 @@ class VehicleOperationsApplication extends FormApplication {
     getData() {
         const actor = this.actor;
         const rolls = lastAttackAndDamageRolls();
+        const repairChatAction = lastRepairChatAction();
         const shield = VehicleModuleService.activeShield(actor);
         const shieldsUp = VehicleModuleService.itemHp(shield) > 0;
         const hull = VehicleModuleService.firstHealthyHull(actor);
         const fuelScoop = VehicleModuleService.findModule(actor, /fuel scoop/i);
         const refinery = VehicleModuleService.findModule(actor, /refinery/i);
         const modules = VehicleModuleService.damageableModules(actor).sort((a, b) => VehicleModuleService.itemAc(a) - VehicleModuleService.itemAc(b) || a.name.localeCompare(b.name));
-        const options = this.moduleOptions(modules, hull, shieldsUp, shield, fuelScoop, refinery);
+        const repairableModules = VehicleModuleService.repairableModules(actor).sort((a, b) => VehicleModuleService.itemAc(a) - VehicleModuleService.itemAc(b) || a.name.localeCompare(b.name));
+        const options = this.moduleOptions(modules, repairableModules, hull, shieldsUp, shield, fuelScoop, refinery);
         const repairPreview = VehicleRepairService.preview(actor);
         return {
             target: this.target,
@@ -1299,6 +1336,8 @@ class VehicleOperationsApplication extends FormApplication {
             shieldText: shieldsUp ? `${actor.name} is being attacked. Shields are up, so damage will hit shields first.` : `${actor.name} is being attacked. No shields are active, so damage will go to hull protection before vulnerable modules.`,
             attack: rolls.attack ?? "",
             damage: rolls.damage ?? 0,
+            repairAction: repairChatAction,
+            repairActions: this.repairActions(repairChatAction),
             fuelYield: rolls.fuelYield ?? 0,
             destinations: TradeHubIntegrationAdapter.locations().map(name => ({ name })),
             tradeHubCapital: TradeHubIntegrationAdapter.capitalAvailable() ? formatGp(TradeHubIntegrationAdapter.capital()) : "Unavailable",
@@ -1312,8 +1351,12 @@ class VehicleOperationsApplication extends FormApplication {
         };
     }
 
-    moduleOptions(modules, hull, shieldsUp, shield, fuelScoop, refinery) {
+    moduleOptions(modules, repairableModules, hull, shieldsUp, shield, fuelScoop, refinery) {
         const base = modules.map(item => ({ id: item.id, label: `AC ${VehicleModuleService.itemAc(item)} - ${item.name}` }));
+        const repairableBase = repairableModules.map(item => {
+            const destroyed = !VehicleModuleService.isEquippedShipModule(item) || VehicleModuleService.itemHp(item) <= 0 || VehicleModuleService.wasDestroyed(item);
+            return { id: item.id, label: `${destroyed ? "Destroyed - " : ""}AC ${VehicleModuleService.itemAc(item)} - ${item.name}` };
+        });
         const evenly = { id: "evenly", label: "Evenly Among Vulnerable Modules", selected: !hull };
         const nonShieldBase = modules
             .filter(item => !VehicleModuleService.isShield(item))
@@ -1324,8 +1367,18 @@ class VehicleOperationsApplication extends FormApplication {
                 : [evenly].concat(base.map(option => ({ ...option, selected: option.id === hull?.id }))),
             fuelModules: base.map(option => ({ ...option, selected: option.id === fuelScoop?.id })),
             miningModules: [{ id: "evenly", label: "Evenly Among Vulnerable Modules", selected: !refinery && !shieldsUp && !hull }].concat(base.map(option => ({ ...option, selected: option.id === (refinery || (shieldsUp ? shield : null) || hull)?.id }))),
-            repairModules: [{ id: "evenly", label: "Distribute Across Damaged Modules", selected: true }].concat(base)
+            repairModules: [{ id: "evenly", label: "Distribute Across Damaged Modules", selected: true }].concat(repairableBase)
         };
+    }
+
+    repairActions(selectedAction) {
+        const actions = [
+            { value: "repair-module", label: "Repair Module" },
+            { value: "stabilize-module", label: "Stabilize Module" },
+            { value: "full-service", label: "Full Service Repair and Replace" }
+        ];
+        if (game.user.isGM) actions.push({ value: "pristine", label: "Make Pristine" });
+        return actions.map(action => ({ ...action, selected: action.value === selectedAction }));
     }
 
     activateListeners(html) {
@@ -1390,11 +1443,13 @@ class VehicleOperationsApplication extends FormApplication {
         const action = html.find('[name="repairAction"]').val();
         const full = action === "full-service";
         const pristine = action === "pristine";
-        html.find("[data-repair-hp-row]").toggle(!full && !pristine);
+        const stabilize = action === "stabilize-module";
+        html.find("[data-repair-hp-row]").toggle(!full && !pristine && !stabilize);
         html.find("[data-repair-bill-row]").toggle(full);
         html.find("[data-repair-target-row]").toggle(!pristine);
         html.find("[data-repair-estimate]").toggle(!pristine);
         html.find("[data-pristine-note]").toggle(pristine);
+        html.find("[data-stabilize-note]").toggle(stabilize);
     }
 
     updateScanMode(html) {
@@ -1733,6 +1788,15 @@ function lastAttackAndDamageRolls() {
         return roll && !roll.formula?.includes("1d20") && !/other formula|constitution saving throw/i.test(textOf(message));
     });
     return { attack: rollOf(attackMessage)?.total ?? null, damage: rollOf(damageMessage)?.total ?? 0, fuelYield: rollOf(fuelYieldMessage)?.total ?? 0 };
+}
+
+function lastRepairChatAction() {
+    const messages = Array.from(game.messages?.contents || []).slice().reverse();
+    const message = messages.find(entry => /repair module|stabilize module/i.test(stripHtml(`${entry?.flavor || ""} ${entry?.content || ""}`)));
+    const text = stripHtml(`${message?.flavor || ""} ${message?.content || ""}`);
+    if (/stabilize module/i.test(text)) return "stabilize-module";
+    if (/repair module/i.test(text)) return "repair-module";
+    return "repair-module";
 }
 
 function fromUuidSyncSafe(uuid) {

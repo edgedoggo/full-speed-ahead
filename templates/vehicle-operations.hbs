@@ -158,16 +158,14 @@
                 <h2><i class="fas fa-wrench"></i> Repair</h2>
                 <p><strong>{{targetName}}</strong> · {{shieldStatus}}</p>
             </header>
-            <p class="notes">Make Pristine is GM-only maintenance: it fully restores the ship, recalculates HP, AC, module value, and jump data, and never bills TradeHub Capital. Full Service Repair can bill TradeHub Capital. Ability Check Repair applies the entered repair HP without billing.</p>
+            <p class="notes">Repair Module applies the entered HP to damaged equipped modules. Stabilize Module equips a destroyed module at 1 HP. Full Service Repair and Replace can bill TradeHub Capital. Make Pristine is GM-only maintenance and never bills TradeHub Capital.</p>
 
             <div class="form-group">
                 <label>Repair Action</label>
                 <select name="repairAction">
-                    <option value="heal" selected>Ability Check Repair</option>
-                    <option value="full-service">Full Service Repair and Replace</option>
-                    {{#if isGM}}
-                    <option value="pristine">Make Pristine</option>
-                    {{/if}}
+                    {{#each repairActions}}
+                    <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+                    {{/each}}
                 </select>
             </div>
 
@@ -205,6 +203,10 @@
                 <strong>Make Pristine:</strong> restores all module HP, vehicle HP, shields, AC, module value, and jump data. No TradeHub billing is applied.
             </p>
             {{/if}}
+
+            <p class="notes" data-stabilize-note style="display:none;">
+                <strong>Stabilize Module:</strong> sets the selected destroyed module to 1 HP and equips it.
+            </p>
 
             <button type="button" data-action="repair"><i class="fas fa-wrench"></i> Repair Ship</button>
         </section>
