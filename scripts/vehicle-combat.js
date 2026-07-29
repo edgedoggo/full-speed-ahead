@@ -73,7 +73,6 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
             vehicleCombatShipIcon: game.settings.get(MODULE_ID, "vehicleCombatShipIcon"),
             vehicleCombatDebug: game.settings.get(MODULE_ID, "vehicleCombatDebug"),
             vehicleOpsEnabled: safeGetModuleSetting("vehicleOpsEnabled", true),
-            vehicleSheetToolsEnabled: safeGetModuleSetting("vehicleSheetToolsEnabled", true),
             vehicleOpsShowFloatingMenuPlayers: safeGetModuleSetting("vehicleOpsShowFloatingMenuPlayers", false),
             vehicleOpsScansEnabled: safeGetModuleSetting("vehicleOpsScansEnabled", true),
             vehicleOpsRepairCostPerHp: safeGetModuleSetting("vehicleOpsRepairCostPerHp", 100),
@@ -129,7 +128,6 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
         await game.settings.set(MODULE_ID, "vehicleCombatShipIcon", String(formData.vehicleCombatShipIcon || DEFAULT_SHIP_BADGE).trim());
         await game.settings.set(MODULE_ID, "vehicleCombatDebug", Boolean(formData.vehicleCombatDebug));
         await safeSetModuleSetting("vehicleOpsEnabled", Boolean(formData.vehicleOpsEnabled));
-        await safeSetModuleSetting("vehicleSheetToolsEnabled", Boolean(formData.vehicleSheetToolsEnabled));
         await safeSetModuleSetting("vehicleOpsShowFloatingMenuPlayers", Boolean(formData.vehicleOpsShowFloatingMenuPlayers));
         await safeSetModuleSetting("vehicleOpsScansEnabled", Boolean(formData.vehicleOpsScansEnabled));
         await safeSetModuleSetting("vehicleOpsRepairCostPerHp", Math.max(0, Number(formData.vehicleOpsRepairCostPerHp || 0)));
@@ -202,7 +200,7 @@ Hooks.once("init", () => {
 
     registerVehicleCombatSetting("vehicleShieldAutomation", {
         name: "Automatically Manage Vehicle Shields",
-        hint: "Use Shield Generator equipment HP and Morphogenetic Field equipment to turn vehicle protection visuals on or off. Morphogenetic Field is treated as a purple shield.",
+        hint: "Ships that have Shield Generators, or Morphogenetic Fields, will automatically have shields drawn so long as they are equipped and contain HP, once the HP runs to 0, the shield will be removed. Shields will also be restored upon healing and repair.",
         type: Boolean,
         default: false,
         config: false,

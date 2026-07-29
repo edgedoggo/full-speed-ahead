@@ -1136,6 +1136,11 @@ function openFullSpeedAheadPanel(panel) {
         if (opened) return opened;
         return openRegisteredFullSpeedAheadMenu("vehicleCombatConfig");
     }
+    if (panel === "sheet-buttons") {
+        const opened = game.fullSpeedAhead?.openVehicleSheetButtonsSettings?.();
+        if (opened) return opened;
+        return openRegisteredFullSpeedAheadMenu("vehicleSheetButtonsConfig");
+    }
     return null;
 }
 

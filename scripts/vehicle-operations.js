@@ -619,7 +619,9 @@ class VehicleDamageService {
             }
         } else {
             const shield = VehicleModuleService.activeShield(actor);
-            if (shield) {
+            const selected = payload.targetModule && payload.targetModule !== "evenly" ? actor.items.get(payload.targetModule) : null;
+            const shieldFirst = shield && (!payload.targetModule || payload.targetModule === shield.id);
+            if (shieldFirst) {
                 const before = VehicleModuleService.itemHp(shield);
                 const dealt = Math.min(before, remaining);
                 await VehicleModuleService.updateModuleHp(shield, before - dealt);
@@ -627,10 +629,14 @@ class VehicleDamageService {
                 remaining -= dealt;
                 if (VehicleModuleService.itemHp(shield) <= 0) state.details.push(`<b>${escapeHtml(shield.name)} is depleted! Shields are down!</b>`);
                 if (remaining > 0) await this.applyCarryover(state, remaining, shield.name);
+            } else if (selected) {
+                remaining = await this.applyToModule(state, selected, remaining);
+                if (remaining > 0) await this.applyCarryover(state, remaining, selected.name);
+            } else if (payload.targetModule === "evenly") {
+                await this.applyCarryover(state, remaining, "directed module damage");
             } else {
-                const selected = payload.targetModule && payload.targetModule !== "evenly" ? actor.items.get(payload.targetModule) : null;
                 const hull = VehicleModuleService.firstHealthyHull(actor);
-                const target = selected || hull;
+                const target = hull;
                 if (target) {
                     remaining = await this.applyToModule(state, target, remaining);
                     if (remaining > 0) await this.applyCarryover(state, remaining, target.name);
@@ -1309,9 +1315,12 @@ class VehicleOperationsApplication extends FormApplication {
     moduleOptions(modules, hull, shieldsUp, shield, fuelScoop, refinery) {
         const base = modules.map(item => ({ id: item.id, label: `AC ${VehicleModuleService.itemAc(item)} - ${item.name}` }));
         const evenly = { id: "evenly", label: "Evenly Among Vulnerable Modules", selected: !hull };
+        const nonShieldBase = modules
+            .filter(item => !VehicleModuleService.isShield(item))
+            .map(item => ({ id: item.id, label: `AC ${VehicleModuleService.itemAc(item)} - ${item.name}` }));
         return {
             attackModules: shieldsUp && shield
-                ? [{ id: shield.id, label: `${shield.name} (shields absorb first)`, selected: true }]
+                ? [{ id: shield.id, label: `${shield.name} (shields absorb first)`, selected: true }, { ...evenly, selected: false }].concat(nonShieldBase.map(option => ({ ...option, selected: false })))
                 : [evenly].concat(base.map(option => ({ ...option, selected: option.id === hull?.id }))),
             fuelModules: base.map(option => ({ ...option, selected: option.id === fuelScoop?.id })),
             miningModules: [{ id: "evenly", label: "Evenly Among Vulnerable Modules", selected: !refinery && !shieldsUp && !hull }].concat(base.map(option => ({ ...option, selected: option.id === (refinery || (shieldsUp ? shield : null) || hull)?.id }))),
@@ -1411,6 +1420,30 @@ class VehicleOperationsApplication extends FormApplication {
     async _updateObject() {}
 }
 
+class VehicleSheetButtonsConfig extends FormApplication {
+    static get defaultOptions() {
+        return foundry.utils.mergeObject(super.defaultOptions, {
+            id: "full-speed-ahead-vehicle-sheet-buttons",
+            title: "Full Speed Ahead: Vehicle Sheet Buttons",
+            template: `modules/${FSA_MODULE_ID}/templates/vehicle-sheet-buttons-settings.hbs`,
+            width: 620,
+            closeOnSubmit: true,
+            submitOnChange: false
+        });
+    }
+
+    getData() {
+        return {
+            vehicleSheetToolsEnabled: game.settings.get(FSA_MODULE_ID, "vehicleSheetToolsEnabled")
+        };
+    }
+
+    async _updateObject(_event, formData) {
+        await game.settings.set(FSA_MODULE_ID, "vehicleSheetToolsEnabled", Boolean(formData.vehicleSheetToolsEnabled));
+        rerenderOpenVehicleSheets();
+    }
+}
+
 class FullSpeedAheadFloatingMenu {
     static id = "full-speed-ahead-floating-menu";
 
@@ -1485,6 +1518,7 @@ Hooks.once("ready", () => {
         closeFloatingMenu: () => FullSpeedAheadFloatingMenu.close()
     };
     game.fullSpeedAhead.openVehicleOperations = tab => VehicleOperationsApplication.open(tab);
+    game.fullSpeedAhead.openVehicleSheetButtonsSettings = () => new VehicleSheetButtonsConfig().render(true);
     FullSpeedAheadFloatingMenu.render();
 });
 
@@ -1548,12 +1582,14 @@ function injectFsaVehicleSheetTools(app, html) {
     if (!root?.length) return;
     placeFsaVehicleSheetTools(root, actor);
     window.setTimeout(() => placeFsaVehicleSheetTools(root, actor), 100);
+    window.setTimeout(() => placeFsaVehicleSheetTools(root, actor), 500);
+    window.setTimeout(() => placeFsaVehicleSheetTools(root, actor), 1000);
 }
 
 function placeFsaVehicleSheetTools(root, actor) {
     if (root.find(".full-speed-ahead-sheet-tools").length) return;
     const panel = $(VehicleSheetToolService.sheetHtml());
-    const target = findFsaConditionImmunityInsertion(root);
+    const target = findFsaVehicleSheetToolInsertion(root);
     if (target?.length) target.after(panel);
     else {
         const fallback = root.find(".traits, .attributes, .sheet-sidebar, .sidebar, .left-pane, .left-column").first();
@@ -1561,6 +1597,26 @@ function placeFsaVehicleSheetTools(root, actor) {
         else root.find("form").first().prepend(panel);
     }
     bindFsaVehicleSheetTools(panel, actor);
+}
+
+function findFsaVehicleSheetToolInsertion(root) {
+    const tradeHubPanel = findTradeHubVehicleSheetTools(root);
+    if (tradeHubPanel.length) return tradeHubPanel;
+    return findFsaConditionImmunityInsertion(root);
+}
+
+function findTradeHubVehicleSheetTools(root) {
+    const tradeHubButtons = root.find("button").filter((_index, element) => {
+        const text = element.textContent?.replace(/\s+/g, " ").trim() || "";
+        return /^(Smollar Markets|TradeHub Markets|View Cargo|Chat Loadout|Print Loadout|Long Rest|Registration|Fuel Release)$/i.test(text);
+    });
+    if (!tradeHubButtons.length) return $();
+    let candidate = tradeHubButtons.first().parent();
+    while (candidate.length && !candidate.is(root) && candidate.find("button").filter((_index, element) => tradeHubButtons.toArray().includes(element)).length < tradeHubButtons.length) {
+        candidate = candidate.parent();
+    }
+    if (candidate.length && !candidate.is(root) && !candidate.is("form")) return candidate.first();
+    return tradeHubButtons.last();
 }
 
 function findFsaConditionImmunityInsertion(root) {
@@ -1631,11 +1687,26 @@ function refreshFsaFloatingMenu() {
     FullSpeedAheadFloatingMenu.render();
 }
 
+function rerenderOpenVehicleSheets() {
+    for (const app of Object.values(ui.windows ?? {})) {
+        const actor = app?.actor || app?.document;
+        if (actor?.type === "vehicle") app.render(false);
+    }
+}
+
 function registerVehicleOpsSettings() {
     const register = (key, data) => game.settings.register(FSA_MODULE_ID, key, { scope: "world", config: true, ...data });
+    game.settings.registerMenu(FSA_MODULE_ID, "vehicleSheetButtonsConfig", {
+        name: "Vehicle Sheet Buttons",
+        label: "Configure Sheet Buttons",
+        hint: "Configure FSA's Long Rest, Registration, Chat Loadout, and Fuel Release buttons on owned vehicle sheets.",
+        icon: "fas fa-list-check",
+        type: VehicleSheetButtonsConfig,
+        restricted: true
+    });
     register("vehicleOperationsData", { name: "Vehicle Operations Data", type: Object, default: foundry.utils.deepClone(FSA_DEFAULT_DATA), config: false });
     register("vehicleOpsEnabled", { name: "Enable Vehicle Operations", hint: "Enable Full Speed Ahead's Apply Damage, Fuel Scooping, Mining Damage, Scans, Repair Ship, Heat Sink, and cargo failure tools.", type: Boolean, default: true, config: false, onChange: refreshFsaFloatingMenu });
-    register("vehicleSheetToolsEnabled", { name: "Show FSA Vehicle Sheet Tools", hint: "Show Long Rest, Registration, Chat Loadout, and Fuel Release controls on owned vehicle sheets.", type: Boolean, default: true, config: false });
+    register("vehicleSheetToolsEnabled", { name: "Show FSA Vehicle Sheet Tools", hint: "Show Long Rest, Registration, Chat Loadout, and Fuel Release controls on owned vehicle sheets.", type: Boolean, default: true, config: false, onChange: rerenderOpenVehicleSheets });
     register("vehicleOpsShowFloatingMenuPlayers", { name: "Show FSA Floating Menu to Players", hint: "Show the draggable FSA floating operations menu to non-GM users.", type: Boolean, default: false, config: false, onChange: refreshFsaFloatingMenu });
     register("vehicleOpsFloatingMenuPosition", { name: "Vehicle Operations Floating Menu Position", type: Object, default: { left: 14, top: 125 }, config: false });
     register("vehicleOpsScansEnabled", { name: "Enable Vehicle Operation Scans", hint: "Allow Tactical, Manifest, and Wake scans from the vehicle operations window.", type: Boolean, default: true, config: false });
