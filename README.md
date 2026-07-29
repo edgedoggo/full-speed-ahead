@@ -17,7 +17,7 @@ Full Speed Ahead rotates vehicle tokens toward their movement destination, can s
 - Name-keyed ship profiles for exhaust color overrides shared by every vehicle with the same name.
 - Vehicle Sheet Cosmetics panel with optional Creature Capacity to Module Capacity and Features to Ship Functions label changes.
 - Global Vehicle Hover Effect panel for X offset, Y offset, and speed, with per-vehicle desynced hover timing.
-- Vehicle Combat Settings panel with an optional mode that sends vehicle crew to combat instead of the vehicle combatant.
+- Vehicle Combat Encounters panel with an optional mode that sends vehicle crew to initiative instead of the vehicle combatant.
 - Optional vehicle protection automation reads Shield Generator equipment HP and Morphogenetic Field equipment, with built-in FSA glow or TokenMagic visual modes.
 - Vehicle Operations window for vehicle damage, fuel scooping, mining damage, scans, repairs, Heat Sink decisions, and cargo failure handling.
 - Movement sounds are broadcast once by the movement initiator to avoid doubled playback.

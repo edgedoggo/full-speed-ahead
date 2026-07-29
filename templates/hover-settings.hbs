@@ -1,5 +1,13 @@
 <form autocomplete="off">
     <div class="form-group">
+        <label>Vehicles have a hover effect</label>
+        <input type="checkbox" name="enableVehicleHoverEffect" {{checked enableVehicleHoverEffect}}>
+        <p class="notes">Gently move vehicle token art in place using Full Speed Ahead's built-in hover motion.</p>
+    </div>
+
+    <hr>
+
+    <div class="form-group">
         <label>X Offset</label>
         <div class="form-fields">
             <input type="range" name="hoverOffsetX" value="{{hoverOffsetX}}" min="0" max="50" step="0.5" data-sync-range="hoverOffsetX">

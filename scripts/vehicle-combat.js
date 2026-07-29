@@ -37,7 +37,7 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
     static get defaultOptions() {
         return foundry.utils.mergeObject(super.defaultOptions, {
             id: "full-speed-ahead-vehicle-combat-config",
-            title: "Full Speed Ahead: Vehicle Combat Settings",
+            title: "Full Speed Ahead: Vehicle Combat Encounters",
             template: `modules/${MODULE_ID}/templates/vehicle-combat-settings.hbs`,
             width: 560,
             closeOnSubmit: true
@@ -52,6 +52,13 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
             vehicleShieldAutomation: game.settings.get(MODULE_ID, "vehicleShieldAutomation"),
             vehicleProtectionVisualMode: game.settings.get(MODULE_ID, "vehicleProtectionVisualMode"),
             vehicleCombatDebug: game.settings.get(MODULE_ID, "vehicleCombatDebug"),
+            vehicleOpsEnabled: safeGetModuleSetting("vehicleOpsEnabled", true),
+            vehicleOpsPlayersCanOpen: safeGetModuleSetting("vehicleOpsPlayersCanOpen", true),
+            vehicleOpsScansEnabled: safeGetModuleSetting("vehicleOpsScansEnabled", true),
+            vehicleOpsRepairCostPerHp: safeGetModuleSetting("vehicleOpsRepairCostPerHp", 100),
+            vehicleOpsRepairCostPerShieldPoint: safeGetModuleSetting("vehicleOpsRepairCostPerShieldPoint", 100),
+            vehicleOpsTokenMagicDamage: safeGetModuleSetting("vehicleOpsTokenMagicDamage", true),
+            vehicleOpsItemPilesJettison: safeGetModuleSetting("vehicleOpsItemPilesJettison", true),
             displayModes: [
                 {
                     value: VEHICLE_COMBAT_DISPLAY_MODES.FULL,
@@ -105,6 +112,13 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
         await game.settings.set(MODULE_ID, "vehicleShieldAutomation", Boolean(formData.vehicleShieldAutomation));
         await game.settings.set(MODULE_ID, "vehicleProtectionVisualMode", getValidProtectionVisualMode(formData.vehicleProtectionVisualMode));
         await game.settings.set(MODULE_ID, "vehicleCombatDebug", Boolean(formData.vehicleCombatDebug));
+        await safeSetModuleSetting("vehicleOpsEnabled", Boolean(formData.vehicleOpsEnabled));
+        await safeSetModuleSetting("vehicleOpsPlayersCanOpen", Boolean(formData.vehicleOpsPlayersCanOpen));
+        await safeSetModuleSetting("vehicleOpsScansEnabled", Boolean(formData.vehicleOpsScansEnabled));
+        await safeSetModuleSetting("vehicleOpsRepairCostPerHp", Math.max(0, Number(formData.vehicleOpsRepairCostPerHp || 0)));
+        await safeSetModuleSetting("vehicleOpsRepairCostPerShieldPoint", Math.max(0, Number(formData.vehicleOpsRepairCostPerShieldPoint || 0)));
+        await safeSetModuleSetting("vehicleOpsTokenMagicDamage", Boolean(formData.vehicleOpsTokenMagicDamage));
+        await safeSetModuleSetting("vehicleOpsItemPilesJettison", Boolean(formData.vehicleOpsItemPilesJettison));
         ui.combat?.render(true);
         if (game.settings.get(MODULE_ID, "vehicleCombatCrewMode")) syncActiveVehicleCombat();
         syncVehicleShields();
@@ -113,8 +127,8 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
 
 Hooks.once("init", () => {
     game.settings.registerMenu(MODULE_ID, "vehicleCombatConfig", {
-        name: "Vehicle Combat Settings",
-        label: "Open Vehicle Combat Settings",
+        name: "Vehicle Combat Encounters",
+        label: "Configure",
         hint: "Configure whether vehicle combat sends crew members to initiative instead of the vehicle.",
         icon: "fas fa-users-cog",
         type: FullSpeedAheadVehicleCombatConfig,
@@ -218,6 +232,22 @@ function registerVehicleCombatSetting(key, data) {
         config: true,
         ...data
     });
+}
+
+function safeGetModuleSetting(key, fallback) {
+    try {
+        return game.settings.get(MODULE_ID, key);
+    } catch (_error) {
+        return fallback;
+    }
+}
+
+async function safeSetModuleSetting(key, value) {
+    try {
+        await game.settings.set(MODULE_ID, key, value);
+    } catch (_error) {
+        // Vehicle Operations may not have registered yet during unusual module load ordering.
+    }
 }
 
 function isVehicleCombatEnabled() {

@@ -32,6 +32,50 @@
     <hr>
 
     <div class="form-group">
+        <label>Enable Vehicle Operations</label>
+        <input type="checkbox" name="vehicleOpsEnabled" {{checked vehicleOpsEnabled}}>
+        <p class="notes">Enable Full Speed Ahead's Apply Damage, Fuel Scooping, Mining Damage, Scans, Repair Ship, Heat Sink, and cargo failure tools.</p>
+    </div>
+
+    <div class="form-group">
+        <label>Players Can Open Vehicle Operations</label>
+        <input type="checkbox" name="vehicleOpsPlayersCanOpen" {{checked vehicleOpsPlayersCanOpen}}>
+        <p class="notes">Allow non-GM users to open the vehicle operations window. Mutations still execute through the GM.</p>
+    </div>
+
+    <div class="form-group">
+        <label>Enable Vehicle Operation Scans</label>
+        <input type="checkbox" name="vehicleOpsScansEnabled" {{checked vehicleOpsScansEnabled}}>
+        <p class="notes">Allow Tactical, Manifest, and Wake scans from the vehicle operations window.</p>
+    </div>
+
+    <div class="form-group">
+        <label>Fallback Repair Cost Per Module HP</label>
+        <input type="number" name="vehicleOpsRepairCostPerHp" value="{{vehicleOpsRepairCostPerHp}}" min="0" step="1">
+        <p class="notes">Used when TradeHub is unavailable or does not expose a repair HP cost.</p>
+    </div>
+
+    <div class="form-group">
+        <label>Fallback Repair Cost Per Shield HP</label>
+        <input type="number" name="vehicleOpsRepairCostPerShieldPoint" value="{{vehicleOpsRepairCostPerShieldPoint}}" min="0" step="1">
+        <p class="notes">Used when TradeHub is unavailable or does not expose a shield repair HP cost.</p>
+    </div>
+
+    <div class="form-group">
+        <label>Use TokenMagic Damage Bursts</label>
+        <input type="checkbox" name="vehicleOpsTokenMagicDamage" {{checked vehicleOpsTokenMagicDamage}}>
+        <p class="notes">If TokenMagic FX is installed, show splash damage filters when vehicle modules take damage.</p>
+    </div>
+
+    <div class="form-group">
+        <label>Use Item Piles for Cargo Jettison</label>
+        <input type="checkbox" name="vehicleOpsItemPilesJettison" {{checked vehicleOpsItemPilesJettison}}>
+        <p class="notes">If Item Piles is installed, create cargo piles near the vehicle when Cargo Bay failure jettisons cargo.</p>
+    </div>
+
+    <hr>
+
+    <div class="form-group">
         <label>Automatically Manage Vehicle Shields</label>
         <input type="checkbox" name="vehicleShieldAutomation" {{checked vehicleShieldAutomation}}>
         <p class="notes">Use Shield Generator equipment HP and Morphogenetic Field equipment to turn vehicle protection visuals on or off. Morphogenetic Field is treated as a purple shield. Supports Shield Generator [A], [B], [C], [D], and [Prismatic].</p>

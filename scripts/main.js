@@ -35,7 +35,8 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
             title: "Full Speed Ahead: Movement Effects",
             template: `modules/${MODULE_ID}/templates/effects-settings.hbs`,
             width: 520,
-            closeOnSubmit: true
+            closeOnSubmit: true,
+            tabs: [{ navSelector: ".tabs", contentSelector: ".fsa-effects-body", initial: "general" }]
         });
     }
 
@@ -58,6 +59,11 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
             movementSoundPath: movementSound.src,
             movementSoundVolume: movementSound.volume,
             enableThrusterEffect: game.settings.get(MODULE_ID, "enableThrusterEffect"),
+            enableShipRotation: game.settings.get(MODULE_ID, "enableShipRotation"),
+            rotateBeforeMove: game.settings.get(MODULE_ID, "rotateBeforeMove"),
+            rotationDelayMs: game.settings.get(MODULE_ID, "rotationDelayMs"),
+            rotationFinishSquares: game.settings.get(MODULE_ID, "rotationFinishSquares"),
+            rotationOffset: game.settings.get(MODULE_ID, "rotationOffset"),
             bowOptions: ["north", "east", "south", "west"].map(value => ({
                 value,
                 label: value.charAt(0).toUpperCase() + value.slice(1),
@@ -238,7 +244,12 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
         const updates = {
             enableMovementSound: Boolean(formData.enableMovementSound),
             enableThrusterEffect: Boolean(formData.enableThrusterEffect),
-            vehicleBowFacing: getValidVehicleBowFacing(formData.vehicleBowFacing)
+            vehicleBowFacing: getValidVehicleBowFacing(formData.vehicleBowFacing),
+            enableShipRotation: Boolean(formData.enableShipRotation),
+            rotateBeforeMove: Boolean(formData.rotateBeforeMove),
+            rotationDelayMs: clampNumber(Number(formData.rotationDelayMs), 25, 500, 75),
+            rotationFinishSquares: clampNumber(Number(formData.rotationFinishSquares), 0.25, 10, 2),
+            rotationOffset: clampNumber(Number(formData.rotationOffset), -180, 180, 0)
         };
 
         for (const [key, value] of Object.entries(updates)) {
@@ -319,6 +330,7 @@ class FullSpeedAheadHoverConfig extends FormApplication {
 
     getData() {
         return {
+            enableVehicleHoverEffect: game.settings.get(MODULE_ID, "enableVehicleHoverEffect"),
             hoverOffsetX: game.settings.get(MODULE_ID, "vehicleHoverOffsetX"),
             hoverOffsetY: game.settings.get(MODULE_ID, "vehicleHoverOffsetY"),
             hoverSpeed: game.settings.get(MODULE_ID, "vehicleHoverSpeed")
@@ -340,6 +352,7 @@ class FullSpeedAheadHoverConfig extends FormApplication {
     }
 
     async _updateObject(event, formData) {
+        await game.settings.set(MODULE_ID, "enableVehicleHoverEffect", Boolean(formData.enableVehicleHoverEffect));
         await game.settings.set(MODULE_ID, "vehicleHoverOffsetX", clampNumber(Number(formData.hoverOffsetX), 0, 50, 2));
         await game.settings.set(MODULE_ID, "vehicleHoverOffsetY", clampNumber(Number(formData.hoverOffsetY), 0, 50, 3));
         await game.settings.set(MODULE_ID, "vehicleHoverSpeed", clampNumber(Number(formData.hoverSpeed), 0.1, 5, 1));
@@ -418,7 +431,7 @@ Hooks.once("init", () => {
 
     game.settings.registerMenu(MODULE_ID, "effectsConfig", {
         name: "Movement Effects",
-        label: "Open Effects Gear",
+        label: "Configure Ship Sound, Thruster, Rotation",
         hint: "Open the same movement effects panel used by the vehicle token HUD gear.",
         icon: "fas fa-cog",
         type: FullSpeedAheadEffectsConfig,
@@ -456,14 +469,16 @@ Hooks.once("init", () => {
         name: "Enable Vehicle Rotation When Moved",
         hint: "Automatically face vehicle tokens toward their movement destination. The top of the token is treated as the front.",
         type: Boolean,
-        default: true
+        default: true,
+        config: false
     });
 
     registerSetting("rotateBeforeMove", {
         name: "Smooth Rotation During Movement",
         hint: "Rotate vehicles by the shortest path while they start moving instead of instantly snapping to the destination heading.",
         type: Boolean,
-        default: true
+        default: true,
+        config: false
     });
 
     registerSetting("rotationDelayMs", {
@@ -471,7 +486,8 @@ Hooks.once("init", () => {
         hint: "How often, in milliseconds, to publish smooth rotation updates while a vehicle starts moving.",
         type: Number,
         default: 75,
-        range: { min: 25, max: 500, step: 25 }
+        range: { min: 25, max: 500, step: 25 },
+        config: false
     });
 
     registerSetting("rotationFinishSquares", {
@@ -479,7 +495,8 @@ Hooks.once("init", () => {
         hint: "How many grid spaces the vehicle may travel before it has finished rotating to its new heading.",
         type: Number,
         default: 2,
-        range: { min: 0.25, max: 10, step: 0.25 }
+        range: { min: 0.25, max: 10, step: 0.25 },
+        config: false
     });
 
     registerSetting("rotationOffset", {
@@ -487,7 +504,8 @@ Hooks.once("init", () => {
         hint: "Advanced degrees added to the calculated heading after Vehicle Bow Facing is applied.",
         type: Number,
         default: 0,
-        range: { min: -180, max: 180, step: 15 }
+        range: { min: -180, max: 180, step: 15 },
+        config: false
     });
 
     registerSetting("vehicleBowFacing", {
@@ -509,6 +527,7 @@ Hooks.once("init", () => {
         hint: "Gently move vehicle token art in place using Full Speed Ahead's built-in hover motion.",
         type: Boolean,
         default: true,
+        config: false,
         onChange: refreshVehicleHoverEffects
     });
 

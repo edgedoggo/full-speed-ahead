@@ -1,176 +1,226 @@
 <form autocomplete="off">
-    <div class="form-group">
-        <label>Movement Sound</label>
-        <input type="checkbox" name="enableMovementSound" {{checked enableMovementSound}}>
-        <p class="notes">Play a sound when a vehicle token starts moving.</p>
-    </div>
+    <nav class="tabs" data-group="primary">
+        <a class="item active" data-tab="general"><i class="fas fa-sliders-h"></i> General</a>
+        <a class="item" data-tab="thrusters"><i class="fas fa-fire"></i> Thrusters</a>
+        <a class="item" data-tab="rotation"><i class="fas fa-sync-alt"></i> Rotation</a>
+    </nav>
 
-    <div class="form-group">
-        <label>Ship Sound File</label>
-        <div class="form-fields">
-            <input type="text" name="movementSoundPath" value="{{movementSoundPath}}">
-            <button type="button" data-action="browse-sound" title="Browse audio files">
-                <i class="fas fa-folder-open"></i>
-            </button>
-        </div>
-    </div>
-
-    <div class="form-group">
-        <label>Sound Volume</label>
-        <div class="form-fields">
-            <input type="range" name="movementSoundVolume" value="{{movementSoundVolume}}" min="0" max="1" step="0.05" data-sync-range="movementSoundVolume">
-            <input type="number" value="{{movementSoundVolume}}" min="0" max="1" step="0.05" data-sync-number="movementSoundVolume">
-        </div>
-    </div>
-
-    <hr>
-
-    <div class="form-group">
-        <label>Thruster Effect</label>
-        <input type="checkbox" name="enableThrusterEffect" {{checked enableThrusterEffect}}>
-        <p class="notes">Show a faded thrust cone underneath moving vehicle tokens. Preview is always shown while tuning.</p>
-    </div>
-
-    {{#if hasShipProfiles}}
-    <hr>
-
-    <div class="form-group">
-        <label>Ship Profile</label>
-        <div class="form-fields">
-            <select name="shipProfileName">
-                {{#each shipOptions}}
-                <option value="{{name}}" {{#if selected}}selected{{/if}}>{{name}}</option>
-                {{/each}}
-            </select>
-        </div>
-        <p class="notes">Profiles are matched by ship name. Every vehicle with the same name uses the same profile.</p>
-        {{#if isTokenConfig}}
-        <p class="notes">This token is named {{tokenName}}. Saving a different profile makes this token use that profile.</p>
-        {{/if}}
-        <p class="notes">The sound file, sound volume, exhaust color, and thrust shape are saved to the selected profile.</p>
-    </div>
-
-    {{/if}}
-
-    <div class="form-group">
-        <label>Orientation</label>
-        <div class="form-fields">
-            <select name="vehicleBowFacing">
-                {{#each bowOptions}}
-                <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
-                {{/each}}
-            </select>
-        </div>
-        <p class="notes">Vehicle/Craft bow faces this direction before Foundry applies token rotation.</p>
-    </div>
-
-    <div data-thruster-controls {{#unless enableThrusterEffect}}style="display: none;"{{/unless}}>
+    <div class="fsa-effects-body">
+    <section class="tab active" data-tab="general" data-group="primary">
+        {{#if hasShipProfiles}}
         <div class="form-group">
-            <label>Scale</label>
+            <label>Ship Profile</label>
             <div class="form-fields">
-                <input type="range" name="thrusterScale" value="{{thrusterScale}}" min="-10" max="10" step="0.5" data-sync-range="thrusterScale">
-                <input type="number" value="{{thrusterScale}}" min="-10" max="10" step="0.5" data-sync-number="thrusterScale">
+                <select name="shipProfileName">
+                    {{#each shipOptions}}
+                    <option value="{{name}}" {{#if selected}}selected{{/if}}>{{name}}</option>
+                    {{/each}}
+                </select>
             </div>
-        </div>
-
-        <div class="form-group">
-            <label>Position</label>
-            <div class="form-fields">
-                <input type="range" name="thrusterPosition" value="{{thrusterPosition}}" min="-6" max="6" step="0.25" data-sync-range="thrusterPosition">
-                <input type="number" value="{{thrusterPosition}}" min="-6" max="6" step="0.25" data-sync-number="thrusterPosition">
-            </div>
-        </div>
-
-        <fieldset>
-            <legend>Primary Thrust</legend>
-
-            {{#if hasShipProfiles}}
-            <div class="form-group">
-                <label>Color</label>
-                <div class="form-fields">
-                    <input type="color" name="shipThrusterColor" value="{{shipThrusterColor}}" data-color-picker="shipThrusterColor">
-                    <input type="text" data-color-text="shipThrusterColor" value="{{shipThrusterColor}}">
-                </div>
-            </div>
+            <p class="notes">Profiles are matched by ship name. Every vehicle with the same name uses the same profile.</p>
+            {{#if isTokenConfig}}
+            <p class="notes">This token is named {{tokenName}}. Saving a different profile makes this token use that profile.</p>
             {{/if}}
+            <p class="notes">The sound file, sound volume, exhaust color, and thrust shape are saved to the selected profile.</p>
+        </div>
+        {{/if}}
 
+        <div class="form-group">
+            <label>Orientation</label>
+            <div class="form-fields">
+                <select name="vehicleBowFacing">
+                    {{#each bowOptions}}
+                    <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+                    {{/each}}
+                </select>
+            </div>
+            <p class="notes">Vehicle/Craft bow faces this direction before Foundry applies token rotation.</p>
+        </div>
+
+        <hr>
+
+        <div class="form-group">
+            <label>Movement Sound</label>
+            <input type="checkbox" name="enableMovementSound" {{checked enableMovementSound}}>
+            <p class="notes">Play a sound when a vehicle token starts moving.</p>
+        </div>
+
+        <div class="form-group">
+            <label>Ship Sound File</label>
+            <div class="form-fields">
+                <input type="text" name="movementSoundPath" value="{{movementSoundPath}}">
+                <button type="button" data-action="browse-sound" title="Browse audio files">
+                    <i class="fas fa-folder-open"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>Sound Volume</label>
+            <div class="form-fields">
+                <input type="range" name="movementSoundVolume" value="{{movementSoundVolume}}" min="0" max="1" step="0.05" data-sync-range="movementSoundVolume">
+                <input type="number" value="{{movementSoundVolume}}" min="0" max="1" step="0.05" data-sync-number="movementSoundVolume">
+            </div>
+        </div>
+    </section>
+
+    <section class="tab" data-tab="thrusters" data-group="primary">
+        <div class="form-group">
+            <label>Thruster Effect</label>
+            <input type="checkbox" name="enableThrusterEffect" {{checked enableThrusterEffect}}>
+            <p class="notes">Show a faded thrust cone underneath moving vehicle tokens. Preview is always shown while tuning.</p>
+        </div>
+
+        <div data-thruster-controls {{#unless enableThrusterEffect}}style="display: none;"{{/unless}}>
             <div class="form-group">
-                <label>Length</label>
+                <label>Scale</label>
                 <div class="form-fields">
-                    <input type="range" name="thrusterLength" value="{{thrusterLength}}" min="0.25" max="12" step="0.25" data-sync-range="thrusterLength">
-                    <input type="number" value="{{thrusterLength}}" min="0.25" max="12" step="0.25" data-sync-number="thrusterLength">
+                    <input type="range" name="thrusterScale" value="{{thrusterScale}}" min="-10" max="10" step="0.5" data-sync-range="thrusterScale">
+                    <input type="number" value="{{thrusterScale}}" min="-10" max="10" step="0.5" data-sync-number="thrusterScale">
                 </div>
             </div>
 
             <div class="form-group">
-                <label>Width</label>
+                <label>Position</label>
                 <div class="form-fields">
-                    <input type="range" name="thrusterWidth" value="{{thrusterWidth}}" min="0.1" max="6" step="0.05" data-sync-range="thrusterWidth">
-                    <input type="number" value="{{thrusterWidth}}" min="0.1" max="6" step="0.05" data-sync-number="thrusterWidth">
+                    <input type="range" name="thrusterPosition" value="{{thrusterPosition}}" min="-6" max="6" step="0.25" data-sync-range="thrusterPosition">
+                    <input type="number" value="{{thrusterPosition}}" min="-6" max="6" step="0.25" data-sync-number="thrusterPosition">
                 </div>
             </div>
 
-            <div class="form-group">
-                <label>Invert</label>
-                <input type="checkbox" name="thrusterInverted" {{checked thrusterInverted}}>
-            </div>
-        </fieldset>
+            <fieldset>
+                <legend>Primary Thrust</legend>
 
-        <details>
-            <summary><i class="fas fa-cog"></i> Advanced Thrust</summary>
-
-            <div class="form-group">
-                <label>Thrust Count</label>
-                <div class="form-fields">
-                    <input type="range" name="coneCount" value="{{coneCount}}" min="1" max="3" step="1" data-sync-range="coneCount">
-                    <input type="number" value="{{coneCount}}" min="1" max="3" step="1" data-sync-number="coneCount">
-                </div>
-                <p class="notes">Thrust count includes Primary Thrust. Additional thrust controls appear as needed.</p>
-            </div>
-
-            <div class="form-group">
-                <label>Thrust Spacing</label>
-                <div class="form-fields">
-                    <input type="range" name="coneSpacing" value="{{coneSpacing}}" min="0" max="6" step="0.05" data-sync-range="coneSpacing">
-                    <input type="number" value="{{coneSpacing}}" min="0" max="6" step="0.05" data-sync-number="coneSpacing">
-                </div>
-            </div>
-
-            {{#each extraCones}}
-            <fieldset data-extra-thrust-index="{{index}}">
-                <legend>Additional Thrust {{letter}}</legend>
-
+                {{#if hasShipProfiles}}
                 <div class="form-group">
                     <label>Color</label>
                     <div class="form-fields">
-                        <input type="color" name="extraCone{{index}}Color" value="{{color}}" data-color-picker="extraCone{{index}}Color">
-                        <input type="text" data-color-text="extraCone{{index}}Color" value="{{color}}">
+                        <input type="color" name="shipThrusterColor" value="{{shipThrusterColor}}" data-color-picker="shipThrusterColor">
+                        <input type="text" data-color-text="shipThrusterColor" value="{{shipThrusterColor}}">
                     </div>
                 </div>
+                {{/if}}
 
                 <div class="form-group">
                     <label>Length</label>
                     <div class="form-fields">
-                        <input type="range" name="extraCone{{index}}Length" value="{{length}}" min="0.25" max="12" step="0.25" data-sync-range="extraCone{{index}}Length">
-                        <input type="number" value="{{length}}" min="0.25" max="12" step="0.25" data-sync-number="extraCone{{index}}Length">
+                        <input type="range" name="thrusterLength" value="{{thrusterLength}}" min="0.25" max="12" step="0.25" data-sync-range="thrusterLength">
+                        <input type="number" value="{{thrusterLength}}" min="0.25" max="12" step="0.25" data-sync-number="thrusterLength">
                     </div>
                 </div>
 
                 <div class="form-group">
                     <label>Width</label>
                     <div class="form-fields">
-                        <input type="range" name="extraCone{{index}}Width" value="{{width}}" min="0.1" max="6" step="0.05" data-sync-range="extraCone{{index}}Width">
-                        <input type="number" value="{{width}}" min="0.1" max="6" step="0.05" data-sync-number="extraCone{{index}}Width">
+                        <input type="range" name="thrusterWidth" value="{{thrusterWidth}}" min="0.1" max="6" step="0.05" data-sync-range="thrusterWidth">
+                        <input type="number" value="{{thrusterWidth}}" min="0.1" max="6" step="0.05" data-sync-number="thrusterWidth">
                     </div>
                 </div>
 
                 <div class="form-group">
                     <label>Invert</label>
-                    <input type="checkbox" name="extraCone{{index}}Inverted" {{checked inverted}}>
+                    <input type="checkbox" name="thrusterInverted" {{checked thrusterInverted}}>
                 </div>
             </fieldset>
-            {{/each}}
-        </details>
+
+            <details>
+                <summary><i class="fas fa-cog"></i> Advanced Thrust</summary>
+
+                <div class="form-group">
+                    <label>Thrust Count</label>
+                    <div class="form-fields">
+                        <input type="range" name="coneCount" value="{{coneCount}}" min="1" max="3" step="1" data-sync-range="coneCount">
+                        <input type="number" value="{{coneCount}}" min="1" max="3" step="1" data-sync-number="coneCount">
+                    </div>
+                    <p class="notes">Thrust count includes Primary Thrust. Additional thrust controls appear as needed.</p>
+                </div>
+
+                <div class="form-group">
+                    <label>Thrust Spacing</label>
+                    <div class="form-fields">
+                        <input type="range" name="coneSpacing" value="{{coneSpacing}}" min="0" max="6" step="0.05" data-sync-range="coneSpacing">
+                        <input type="number" value="{{coneSpacing}}" min="0" max="6" step="0.05" data-sync-number="coneSpacing">
+                    </div>
+                </div>
+
+                {{#each extraCones}}
+                <fieldset data-extra-thrust-index="{{index}}">
+                    <legend>Additional Thrust {{letter}}</legend>
+
+                    <div class="form-group">
+                        <label>Color</label>
+                        <div class="form-fields">
+                            <input type="color" name="extraCone{{index}}Color" value="{{color}}" data-color-picker="extraCone{{index}}Color">
+                            <input type="text" data-color-text="extraCone{{index}}Color" value="{{color}}">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Length</label>
+                        <div class="form-fields">
+                            <input type="range" name="extraCone{{index}}Length" value="{{length}}" min="0.25" max="12" step="0.25" data-sync-range="extraCone{{index}}Length">
+                            <input type="number" value="{{length}}" min="0.25" max="12" step="0.25" data-sync-number="extraCone{{index}}Length">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Width</label>
+                        <div class="form-fields">
+                            <input type="range" name="extraCone{{index}}Width" value="{{width}}" min="0.1" max="6" step="0.05" data-sync-range="extraCone{{index}}Width">
+                            <input type="number" value="{{width}}" min="0.1" max="6" step="0.05" data-sync-number="extraCone{{index}}Width">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Invert</label>
+                        <input type="checkbox" name="extraCone{{index}}Inverted" {{checked inverted}}>
+                    </div>
+                </fieldset>
+                {{/each}}
+            </details>
+        </div>
+    </section>
+
+    <section class="tab" data-tab="rotation" data-group="primary">
+        <div class="form-group">
+            <label>Enable Vehicle Rotation When Moved</label>
+            <input type="checkbox" name="enableShipRotation" {{checked enableShipRotation}}>
+            <p class="notes">Automatically face vehicle tokens toward their movement destination.</p>
+        </div>
+
+        <div class="form-group">
+            <label>Smooth Rotation During Movement</label>
+            <input type="checkbox" name="rotateBeforeMove" {{checked rotateBeforeMove}}>
+            <p class="notes">Rotate vehicles by the shortest path while they start moving instead of instantly snapping to the destination heading.</p>
+        </div>
+
+        <div class="form-group">
+            <label>Rotation Update Interval</label>
+            <div class="form-fields">
+                <input type="range" name="rotationDelayMs" value="{{rotationDelayMs}}" min="25" max="500" step="25" data-sync-range="rotationDelayMs">
+                <input type="number" value="{{rotationDelayMs}}" min="25" max="500" step="25" data-sync-number="rotationDelayMs">
+            </div>
+            <p class="notes">How often, in milliseconds, to publish smooth rotation updates while a vehicle starts moving.</p>
+        </div>
+
+        <div class="form-group">
+            <label>Rotation Finish Distance</label>
+            <div class="form-fields">
+                <input type="range" name="rotationFinishSquares" value="{{rotationFinishSquares}}" min="0.25" max="10" step="0.25" data-sync-range="rotationFinishSquares">
+                <input type="number" value="{{rotationFinishSquares}}" min="0.25" max="10" step="0.25" data-sync-number="rotationFinishSquares">
+            </div>
+            <p class="notes">How many grid spaces the vehicle may travel before it has finished rotating to its new heading.</p>
+        </div>
+
+        <div class="form-group">
+            <label>Rotation Offset</label>
+            <div class="form-fields">
+                <input type="range" name="rotationOffset" value="{{rotationOffset}}" min="-180" max="180" step="15" data-sync-range="rotationOffset">
+                <input type="number" value="{{rotationOffset}}" min="-180" max="180" step="15" data-sync-number="rotationOffset">
+            </div>
+            <p class="notes">Advanced degrees added to the calculated heading after Orientation is applied.</p>
+        </div>
+    </section>
     </div>
 
     <footer class="sheet-footer flexrow">

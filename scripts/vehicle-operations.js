@@ -1090,14 +1090,14 @@ function shouldScheduleVehicleModuleSync(item, options = {}) {
 function registerVehicleOpsSettings() {
     const register = (key, data) => game.settings.register(FSA_MODULE_ID, key, { scope: "world", config: true, ...data });
     register("vehicleOperationsData", { name: "Vehicle Operations Data", type: Object, default: foundry.utils.deepClone(FSA_DEFAULT_DATA), config: false });
-    register("vehicleOpsEnabled", { name: "Enable Vehicle Operations", hint: "Enable Full Speed Ahead's Apply Damage, Fuel Scooping, Mining Damage, Scans, Repair Ship, Heat Sink, and cargo failure tools.", type: Boolean, default: true });
-    register("vehicleOpsPlayersCanOpen", { name: "Players Can Open Vehicle Operations", hint: "Allow non-GM users to open the vehicle operations window. Mutations still execute through the GM.", type: Boolean, default: true });
+    register("vehicleOpsEnabled", { name: "Enable Vehicle Operations", hint: "Enable Full Speed Ahead's Apply Damage, Fuel Scooping, Mining Damage, Scans, Repair Ship, Heat Sink, and cargo failure tools.", type: Boolean, default: true, config: false });
+    register("vehicleOpsPlayersCanOpen", { name: "Players Can Open Vehicle Operations", hint: "Allow non-GM users to open the vehicle operations window. Mutations still execute through the GM.", type: Boolean, default: true, config: false });
     register("vehicleOpsFloatingMenuPosition", { name: "Vehicle Operations Floating Menu Position", type: Object, default: { left: 14, top: 125 }, config: false });
-    register("vehicleOpsScansEnabled", { name: "Enable Vehicle Operation Scans", hint: "Allow Tactical, Manifest, and Wake scans from the vehicle operations window.", type: Boolean, default: true });
-    register("vehicleOpsRepairCostPerHp", { name: "Fallback Repair Cost Per Module HP", hint: "Used when TradeHub is unavailable or does not expose a repair HP cost.", type: Number, default: 100 });
-    register("vehicleOpsRepairCostPerShieldPoint", { name: "Fallback Repair Cost Per Shield HP", hint: "Used when TradeHub is unavailable or does not expose a shield repair HP cost.", type: Number, default: 100 });
-    register("vehicleOpsTokenMagicDamage", { name: "Use TokenMagic Damage Bursts", hint: "If TokenMagic FX is installed, show splash damage filters when vehicle modules take damage.", type: Boolean, default: true });
-    register("vehicleOpsItemPilesJettison", { name: "Use Item Piles for Cargo Jettison", hint: "If Item Piles is installed, create cargo piles near the vehicle when Cargo Bay failure jettisons cargo.", type: Boolean, default: true });
+    register("vehicleOpsScansEnabled", { name: "Enable Vehicle Operation Scans", hint: "Allow Tactical, Manifest, and Wake scans from the vehicle operations window.", type: Boolean, default: true, config: false });
+    register("vehicleOpsRepairCostPerHp", { name: "Fallback Repair Cost Per Module HP", hint: "Used when TradeHub is unavailable or does not expose a repair HP cost.", type: Number, default: 100, config: false });
+    register("vehicleOpsRepairCostPerShieldPoint", { name: "Fallback Repair Cost Per Shield HP", hint: "Used when TradeHub is unavailable or does not expose a shield repair HP cost.", type: Number, default: 100, config: false });
+    register("vehicleOpsTokenMagicDamage", { name: "Use TokenMagic Damage Bursts", hint: "If TokenMagic FX is installed, show splash damage filters when vehicle modules take damage.", type: Boolean, default: true, config: false });
+    register("vehicleOpsItemPilesJettison", { name: "Use Item Piles for Cargo Jettison", hint: "If Item Piles is installed, create cargo piles near the vehicle when Cargo Bay failure jettisons cargo.", type: Boolean, default: true, config: false });
 }
 
 function lastAttackAndDamageRolls() {
