@@ -17,8 +17,26 @@ class TradeHubIntegrationAdapter {
         return Boolean(game.modules?.get("tradehub-markets")?.active);
     }
 
+    static capitalGetter() {
+        return [
+            game.tradehub?.getCapital,
+            game.tradehub?.capital,
+            game.tradehub?.bankBalance,
+            game.tradehub?.getBankBalance
+        ].find(method => typeof method === "function") || null;
+    }
+
+    static capitalSetter() {
+        return [
+            game.tradehub?.setCapital,
+            game.tradehub?.updateCapital,
+            game.tradehub?.updateBank,
+            game.tradehub?.setBankBalance
+        ].find(method => typeof method === "function") || null;
+    }
+
     static usesTradeHubCapital() {
-        return this.isAvailable() && (typeof game.tradehub?.capital === "function" || typeof game.tradehub?.getCapital === "function" || typeof this.data().capital !== "undefined");
+        return this.isAvailable() && (this.capitalGetter() || typeof this.data().capital !== "undefined");
     }
 
     static setting(key, fallback = null) {
@@ -61,7 +79,8 @@ class TradeHubIntegrationAdapter {
 
     static capital() {
         if (this.usesTradeHubCapital()) {
-            const publicCapital = typeof game.tradehub?.capital === "function" ? game.tradehub.capital() : typeof game.tradehub?.getCapital === "function" ? game.tradehub.getCapital() : null;
+            const getter = this.capitalGetter();
+            const publicCapital = getter ? getter.call(game.tradehub) : null;
             if (Number.isFinite(Number(publicCapital))) return Number(publicCapital);
             return Number(this.data().capital || 0);
         }
@@ -89,8 +108,9 @@ class TradeHubIntegrationAdapter {
         if (!this.capitalAvailable()) throw new Error("TradeHub billing is unavailable.");
         if (!game.user?.isGM) throw new Error("Only the active GM can update TradeHub Capital.");
         const clamped = Math.max(0, Number(value || 0));
-        if (this.usesTradeHubCapital() && typeof game.tradehub?.setCapital === "function") {
-            await game.tradehub.setCapital(clamped);
+        const setter = this.capitalSetter();
+        if (this.usesTradeHubCapital() && setter) {
+            await setter.call(game.tradehub, clamped);
             await this.setFallbackCapital(clamped);
             await game.settings.set(FSA_MODULE_ID, "vehicleOpsFallbackCapitalWasUsed", false);
             this.refreshTradeHub();
