@@ -22,6 +22,11 @@ const VEHICLE_BOW_OFFSETS = {
     south: 180,
     west: 90
 };
+const VEHICLE_PROTECTION_VISUAL_MODES = {
+    BUILT_IN: "built-in",
+    TOKEN_MAGIC: "token-magic",
+    BOTH: "both"
+};
 const lastTokenPositions = new Map();
 const activeMotionEffects = new Map();
 const activeVehicleHovers = new Map();
@@ -52,18 +57,44 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
         const fallbackColor = game.settings.get(MODULE_ID, "thrusterColor") || DEFAULT_THRUSTER_COLOR;
         const movementSound = getMovementSoundOptions(tokenDocument, focusedProfile);
         const dimensions = getThrusterDimensionsForProfile(canvas.scene?.id, focusedShipName);
-        const bowFacing = getVehicleBowFacing();
+        const rotationSettings = getProfileRotationSettings(focusedProfile);
+        const hoverSettings = getProfileHoverSettings(focusedProfile);
+        const protectionSettings = getProfileProtectionSettings(focusedProfile);
+        const bowFacing = rotationSettings.vehicleBowFacing;
 
         return {
-            enableMovementSound: game.settings.get(MODULE_ID, "enableMovementSound"),
+            enableMovementSound: movementSound.enabled,
             movementSoundPath: movementSound.src,
             movementSoundVolume: movementSound.volume,
-            enableThrusterEffect: game.settings.get(MODULE_ID, "enableThrusterEffect"),
-            enableShipRotation: game.settings.get(MODULE_ID, "enableShipRotation"),
-            rotateBeforeMove: game.settings.get(MODULE_ID, "rotateBeforeMove"),
-            rotationDelayMs: game.settings.get(MODULE_ID, "rotationDelayMs"),
-            rotationFinishSquares: game.settings.get(MODULE_ID, "rotationFinishSquares"),
-            rotationOffset: game.settings.get(MODULE_ID, "rotationOffset"),
+            enableThrusterEffect: getProfileBoolean(focusedProfile, "enableThrusterEffect", "enableThrusterEffect"),
+            enableShipRotation: rotationSettings.enableShipRotation,
+            rotateBeforeMove: rotationSettings.rotateBeforeMove,
+            rotationDelayMs: rotationSettings.rotationDelayMs,
+            rotationFinishSquares: rotationSettings.rotationFinishSquares,
+            rotationOffset: rotationSettings.rotationOffset,
+            enableVehicleHoverEffect: hoverSettings.enabled,
+            hoverOffsetX: hoverSettings.offsetX,
+            hoverOffsetY: hoverSettings.offsetY,
+            hoverSpeed: hoverSettings.speed,
+            vehicleShieldAutomation: protectionSettings.enabled,
+            vehicleProtectionVisualMode: protectionSettings.visualMode,
+            protectionVisualModes: [
+                {
+                    value: VEHICLE_PROTECTION_VISUAL_MODES.BUILT_IN,
+                    label: "Built-In FSA Glow",
+                    selected: protectionSettings.visualMode === VEHICLE_PROTECTION_VISUAL_MODES.BUILT_IN
+                },
+                {
+                    value: VEHICLE_PROTECTION_VISUAL_MODES.TOKEN_MAGIC,
+                    label: "TokenMagic FX",
+                    selected: protectionSettings.visualMode === VEHICLE_PROTECTION_VISUAL_MODES.TOKEN_MAGIC
+                },
+                {
+                    value: VEHICLE_PROTECTION_VISUAL_MODES.BOTH,
+                    label: "Built-In + TokenMagic",
+                    selected: protectionSettings.visualMode === VEHICLE_PROTECTION_VISUAL_MODES.BOTH
+                }
+            ],
             bowOptions: ["north", "east", "south", "west"].map(value => ({
                 value,
                 label: value.charAt(0).toUpperCase() + value.slice(1),
@@ -143,10 +174,15 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
             const fallbackColor = game.settings.get(MODULE_ID, "thrusterColor") || DEFAULT_THRUSTER_COLOR;
             const movementSound = getMovementSoundOptions(null, profile);
             const dimensions = getThrusterDimensionsForProfile(canvas.scene?.id, profileName);
+            const rotationSettings = getProfileRotationSettings(profile);
+            const hoverSettings = getProfileHoverSettings(profile);
+            const protectionSettings = getProfileProtectionSettings(profile);
             const color = profile?.thrusterColor ?? fallbackColor;
+            html.find('[name="enableMovementSound"]').prop("checked", Boolean(movementSound.enabled));
             html.find('[name="movementSoundPath"]').val(movementSound.src);
             html.find('[name="movementSoundVolume"]').val(movementSound.volume);
             html.find('[data-sync-number="movementSoundVolume"]').val(movementSound.volume);
+            html.find('[name="enableThrusterEffect"]').prop("checked", getProfileBoolean(profile, "enableThrusterEffect", "enableThrusterEffect"));
             html.find('[name="thrusterScale"]').val(dimensions.scale);
             html.find('[data-sync-number="thrusterScale"]').val(dimensions.scale);
             html.find('[name="thrusterPosition"]').val(dimensions.position);
@@ -172,7 +208,26 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
             });
             html.find('[name="shipThrusterColor"]').val(color);
             html.find('[data-color-text="shipThrusterColor"]').val(color);
+            html.find('[name="vehicleBowFacing"]').val(rotationSettings.vehicleBowFacing);
+            html.find('[name="enableShipRotation"]').prop("checked", Boolean(rotationSettings.enableShipRotation));
+            html.find('[name="rotateBeforeMove"]').prop("checked", Boolean(rotationSettings.rotateBeforeMove));
+            html.find('[name="rotationDelayMs"]').val(rotationSettings.rotationDelayMs);
+            html.find('[data-sync-number="rotationDelayMs"]').val(rotationSettings.rotationDelayMs);
+            html.find('[name="rotationFinishSquares"]').val(rotationSettings.rotationFinishSquares);
+            html.find('[data-sync-number="rotationFinishSquares"]').val(rotationSettings.rotationFinishSquares);
+            html.find('[name="rotationOffset"]').val(rotationSettings.rotationOffset);
+            html.find('[data-sync-number="rotationOffset"]').val(rotationSettings.rotationOffset);
+            html.find('[name="enableVehicleHoverEffect"]').prop("checked", Boolean(hoverSettings.enabled));
+            html.find('[name="hoverOffsetX"]').val(hoverSettings.offsetX);
+            html.find('[data-sync-number="hoverOffsetX"]').val(hoverSettings.offsetX);
+            html.find('[name="hoverOffsetY"]').val(hoverSettings.offsetY);
+            html.find('[data-sync-number="hoverOffsetY"]').val(hoverSettings.offsetY);
+            html.find('[name="hoverSpeed"]').val(hoverSettings.speed);
+            html.find('[data-sync-number="hoverSpeed"]').val(hoverSettings.speed);
+            html.find('[name="vehicleShieldAutomation"]').prop("checked", Boolean(protectionSettings.enabled));
+            html.find('[name="vehicleProtectionVisualMode"]').val(protectionSettings.visualMode);
             this.updateConeVisibility(html);
+            this.updateThrusterControlsVisibility(html);
             this.previewFromForm(html);
         });
 
@@ -241,29 +296,30 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
 
     async _updateObject(event, formData) {
         const tokenDocument = this.tokenDocument;
-        const updates = {
-            enableMovementSound: Boolean(formData.enableMovementSound),
-            enableThrusterEffect: Boolean(formData.enableThrusterEffect),
-            vehicleBowFacing: getValidVehicleBowFacing(formData.vehicleBowFacing),
-            enableShipRotation: Boolean(formData.enableShipRotation),
-            rotateBeforeMove: Boolean(formData.rotateBeforeMove),
-            rotationDelayMs: clampNumber(Number(formData.rotationDelayMs), 25, 500, 75),
-            rotationFinishSquares: clampNumber(Number(formData.rotationFinishSquares), 0.25, 10, 2),
-            rotationOffset: clampNumber(Number(formData.rotationOffset), -180, 180, 0)
-        };
-
-        for (const [key, value] of Object.entries(updates)) {
-            await game.settings.set(MODULE_ID, key, value);
-        }
-
         const profileName = String(formData.shipProfileName ?? (tokenDocument ? getShipProfileName(tokenDocument) : "")).trim();
         if (!profileName) {
+            await game.settings.set(MODULE_ID, "enableMovementSound", Boolean(formData.enableMovementSound));
             await game.settings.set(MODULE_ID, "movementSoundPath", String(formData.movementSoundPath ?? "").trim());
             await game.settings.set(MODULE_ID, "movementSoundVolume", clampNumber(Number(formData.movementSoundVolume), 0, 1, game.settings.get(MODULE_ID, "movementSoundVolume")));
+            await game.settings.set(MODULE_ID, "enableThrusterEffect", Boolean(formData.enableThrusterEffect));
+            await game.settings.set(MODULE_ID, "vehicleBowFacing", getValidVehicleBowFacing(formData.vehicleBowFacing));
+            await game.settings.set(MODULE_ID, "enableShipRotation", Boolean(formData.enableShipRotation));
+            await game.settings.set(MODULE_ID, "rotateBeforeMove", Boolean(formData.rotateBeforeMove));
+            await game.settings.set(MODULE_ID, "rotationDelayMs", clampNumber(Number(formData.rotationDelayMs), 25, 500, 75));
+            await game.settings.set(MODULE_ID, "rotationFinishSquares", clampNumber(Number(formData.rotationFinishSquares), 0.25, 10, 2));
+            await game.settings.set(MODULE_ID, "rotationOffset", clampNumber(Number(formData.rotationOffset), -180, 180, 0));
             await game.settings.set(MODULE_ID, "thrusterScale", clampNumber(Number(formData.thrusterScale), -10, 10, 0));
             await game.settings.set(MODULE_ID, "thrusterLength", Number(formData.thrusterLength));
             await game.settings.set(MODULE_ID, "thrusterWidth", Number(formData.thrusterWidth));
+            await game.settings.set(MODULE_ID, "enableVehicleHoverEffect", Boolean(formData.enableVehicleHoverEffect));
+            await game.settings.set(MODULE_ID, "vehicleHoverOffsetX", clampNumber(Number(formData.hoverOffsetX), 0, 50, 2));
+            await game.settings.set(MODULE_ID, "vehicleHoverOffsetY", clampNumber(Number(formData.hoverOffsetY), 0, 50, 3));
+            await game.settings.set(MODULE_ID, "vehicleHoverSpeed", clampNumber(Number(formData.hoverSpeed), 0.1, 5, 1));
+            await game.settings.set(MODULE_ID, "vehicleShieldAutomation", Boolean(formData.vehicleShieldAutomation));
+            await game.settings.set(MODULE_ID, "vehicleProtectionVisualMode", getValidProtectionVisualMode(formData.vehicleProtectionVisualMode));
             clearThrusterPreview();
+            refreshVehicleHoverEffects();
+            game.fullSpeedAheadVehicleCombat?.syncVehicleShields?.();
             return;
         }
 
@@ -272,8 +328,28 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
         const profile = {
             ...(profiles[profileKey] ?? {}),
             name: profileName,
+            enableMovementSound: Boolean(formData.enableMovementSound),
+            enableThrusterEffect: Boolean(formData.enableThrusterEffect),
             movementSoundPath: String(formData.movementSoundPath ?? "").trim(),
-            movementSoundVolume: clampNumber(Number(formData.movementSoundVolume), 0, 1, game.settings.get(MODULE_ID, "movementSoundVolume"))
+            movementSoundVolume: clampNumber(Number(formData.movementSoundVolume), 0, 1, game.settings.get(MODULE_ID, "movementSoundVolume")),
+            rotationSettings: {
+                vehicleBowFacing: getValidVehicleBowFacing(formData.vehicleBowFacing),
+                enableShipRotation: Boolean(formData.enableShipRotation),
+                rotateBeforeMove: Boolean(formData.rotateBeforeMove),
+                rotationDelayMs: clampNumber(Number(formData.rotationDelayMs), 25, 500, 75),
+                rotationFinishSquares: clampNumber(Number(formData.rotationFinishSquares), 0.25, 10, 2),
+                rotationOffset: clampNumber(Number(formData.rotationOffset), -180, 180, 0)
+            },
+            hoverSettings: {
+                enabled: Boolean(formData.enableVehicleHoverEffect),
+                offsetX: clampNumber(Number(formData.hoverOffsetX), 0, 50, 2),
+                offsetY: clampNumber(Number(formData.hoverOffsetY), 0, 50, 3),
+                speed: clampNumber(Number(formData.hoverSpeed), 0.1, 5, 1)
+            },
+            protectionSettings: {
+                enabled: Boolean(formData.vehicleShieldAutomation),
+                visualMode: getValidProtectionVisualMode(formData.vehicleProtectionVisualMode)
+            }
         };
         const fallbackColor = game.settings.get(MODULE_ID, "thrusterColor") || DEFAULT_THRUSTER_COLOR;
         const shipColor = String(formData.shipThrusterColor ?? fallbackColor).trim();
@@ -285,6 +361,8 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
         await setAssignedShipProfileName(tokenDocument, profileName);
         await clearSceneThrusterDimensionsForProfile(canvas.scene?.id, profileName);
         clearThrusterPreview();
+        refreshVehicleHoverEffects();
+        game.fullSpeedAheadVehicleCombat?.syncVehicleShields?.();
     }
 
     async close(options) {
@@ -453,15 +531,6 @@ Hooks.once("init", () => {
         hint: "Configure non-vehicle and vehicle QuickTarget access, timeout behavior, and private helper chat cards.",
         icon: "fas fa-crosshairs",
         type: FullSpeedAheadTargetingCardsConfig,
-        restricted: true
-    });
-
-    game.settings.registerMenu(MODULE_ID, "hoverConfig", {
-        name: "Vehicle Hover Effect",
-        label: "Configure Hover",
-        hint: "Configure the global hover offset and speed used by all vehicle tokens.",
-        icon: "fas fa-arrows-alt",
-        type: FullSpeedAheadHoverConfig,
         restricted: true
     });
 
@@ -699,6 +768,10 @@ Hooks.once("init", () => {
 
 Hooks.on("ready", () => {
     console.log(`${LOG_PREFIX} Ready.`);
+    game.fullSpeedAhead = game.fullSpeedAhead || {};
+    game.fullSpeedAhead.openSettings = openFullSpeedAheadSettings;
+    game.fullSpeedAhead.getProtectionSettingsForActor = getProtectionSettingsForActor;
+    game.fullSpeedAhead.getProtectionSettingsForTokenDocument = getProtectionSettingsForTokenDocument;
     refreshVehicleHoverEffects();
 });
 
@@ -719,9 +792,10 @@ Hooks.on("deleteToken", tokenDocument => {
 });
 
 Hooks.on("preUpdateToken", (tokenDocument, changes, options, userId) => {
-    if (!game.settings.get(MODULE_ID, "enableShipRotation")) return;
     if (options?.[INTERNAL_MOVE]) return;
     if (!isVehicleDocument(tokenDocument)) return;
+    const rotationSettings = getRotationSettingsForTokenDocument(tokenDocument);
+    if (!rotationSettings.enableShipRotation) return;
     if (!hasMovement(changes)) return;
 
     const destination = {
@@ -732,13 +806,14 @@ Hooks.on("preUpdateToken", (tokenDocument, changes, options, userId) => {
     const rotation = getHeadingRotation(origin, destination);
     if (rotation === null) return;
 
-    const adjustedRotation = normalizeDegrees(rotation + getVehicleRotationOffset());
+    const adjustedRotation = normalizeDegrees(rotation + getVehicleRotationOffset(tokenDocument));
     lastTokenPositions.set(tokenDocument.id, origin);
     options.fullSpeedAheadMotion = {
         origin,
         destination,
         startRotation: normalizeDegrees(tokenDocument.rotation ?? 0),
-        targetRotation: adjustedRotation
+        targetRotation: adjustedRotation,
+        rotationSettings
     };
     delete changes.rotation;
 });
@@ -954,8 +1029,9 @@ function normalizeDegrees(degrees) {
     return ((degrees % 360) + 360) % 360;
 }
 
-function getVehicleRotationOffset() {
-    return VEHICLE_BOW_OFFSETS[getVehicleBowFacing()] + getSettingNumber("rotationOffset", 0);
+function getVehicleRotationOffset(tokenDocument = null) {
+    const settings = getProfileRotationSettings(getShipProfile(getShipProfileName(tokenDocument)));
+    return VEHICLE_BOW_OFFSETS[settings.vehicleBowFacing] + settings.rotationOffset;
 }
 
 function getVehicleBowFacing() {
@@ -967,6 +1043,11 @@ function getValidVehicleBowFacing(value) {
     return Object.prototype.hasOwnProperty.call(VEHICLE_BOW_OFFSETS, facing) ? facing : "north";
 }
 
+function getValidProtectionVisualMode(value) {
+    const mode = String(value ?? VEHICLE_PROTECTION_VISUAL_MODES.BUILT_IN);
+    return Object.values(VEHICLE_PROTECTION_VISUAL_MODES).includes(mode) ? mode : VEHICLE_PROTECTION_VISUAL_MODES.BUILT_IN;
+}
+
 function getSettingNumber(key, fallback) {
     const value = Number(game.settings.get(MODULE_ID, key));
     return Number.isFinite(value) ? value : fallback;
@@ -975,6 +1056,30 @@ function getSettingNumber(key, fallback) {
 function clampNumber(value, min, max, fallback) {
     if (!Number.isFinite(value)) return fallback;
     return Math.max(min, Math.min(max, value));
+}
+
+function openFullSpeedAheadSettings() {
+    const settings = game.settings?.sheet || (globalThis.SettingsConfig ? new globalThis.SettingsConfig() : null);
+    if (!settings?.render) {
+        ui.notifications.info("Open Configure Settings to edit Full Speed Ahead settings.");
+        return null;
+    }
+    settings.render(true);
+    window.setTimeout(() => focusFullSpeedAheadSettings(settings), 120);
+    window.setTimeout(() => focusFullSpeedAheadSettings(settings), 450);
+    return settings;
+}
+
+function focusFullSpeedAheadSettings(settings) {
+    const html = settings?.element;
+    if (!html?.length) return;
+    const filter = html.find('input[name="filter"], input[type="search"], input[placeholder*="Filter"], input[placeholder*="Search"]').first();
+    if (filter.length) {
+        filter.val("Full Speed Ahead");
+        filter.trigger("input").trigger("keyup").trigger("change");
+    }
+    const heading = html.find("h2,h3,h4,label,button,a").filter((_index, element) => (element.textContent || "").includes("Full Speed Ahead")).first();
+    if (heading.length) heading[0].scrollIntoView({ block: "start" });
 }
 
 function normalizeHexColor(value, fallback = DEFAULT_THRUSTER_COLOR) {
@@ -988,11 +1093,10 @@ function getThrusterScaleFactor(scale) {
 }
 
 function playMovementSound(tokenDocument, userId) {
-    if (!game.settings.get(MODULE_ID, "enableMovementSound")) return;
     if (userId && game.user.id !== userId) return;
 
-    const { src, volume } = getMovementSoundOptions(tokenDocument);
-    if (!src) return;
+    const { src, volume, enabled } = getMovementSoundOptions(tokenDocument);
+    if (!src || !enabled) return;
 
     AudioHelper.play({
         src,
@@ -1010,6 +1114,7 @@ function applyVehicleSheetCosmetics(app, html) {
             const label = $(element);
             label.text(label.text().replace("Creature Capacity", "Module Capacity"));
         });
+        makeModuleCapacityReadonlyForPlayers(html);
     }
 
     if (game.settings.get(MODULE_ID, "renameFeaturesToShipFunctions")) {
@@ -1020,13 +1125,40 @@ function applyVehicleSheetCosmetics(app, html) {
     }
 }
 
+function makeModuleCapacityReadonlyForPlayers(html) {
+    if (game.user?.isGM) return;
+    const root = html?.jquery ? html : $(html);
+    const capacityInputs = root.find('input[name*="creature"][name*="capacity"], input[data-path*="creature"][data-path*="capacity"], input[name*="cargo.creature"], input[data-path*="cargo.creature"]');
+    capacityInputs.prop("readonly", true).attr("tabindex", "-1").addClass("full-speed-ahead-readonly-capacity-input");
+
+    root.find('h4:contains("Module Capacity")').each((_index, element) => {
+        const label = $(element);
+        const valueNodes = label.nextUntil("h4").filter((_nodeIndex, node) => {
+            const text = $(node).text().trim();
+            return Boolean(text) && !/^Cargo Capacity\b/i.test(text);
+        });
+        label.add(valueNodes).addClass("full-speed-ahead-readonly-capacity");
+        blockModuleCapacityEditing(label.add(valueNodes));
+    });
+}
+
+function blockModuleCapacityEditing(elements) {
+    elements.each((_index, element) => {
+        element.addEventListener("pointerdown", stopModuleCapacityEditEvent, true);
+        element.addEventListener("mousedown", stopModuleCapacityEditEvent, true);
+        element.addEventListener("click", stopModuleCapacityEditEvent, true);
+        element.addEventListener("dblclick", stopModuleCapacityEditEvent, true);
+        element.addEventListener("keydown", stopModuleCapacityEditEvent, true);
+    });
+}
+
+function stopModuleCapacityEditEvent(event) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+}
+
 function refreshVehicleHoverEffects() {
     if (!canvas?.ready || !canvas.tokens) return;
-
-    if (!game.settings.get(MODULE_ID, "enableVehicleHoverEffect")) {
-        stopAllVehicleHovers();
-        return;
-    }
 
     for (const token of canvas.tokens.placeables ?? []) {
         applyVehicleHoverIfNeeded(token);
@@ -1036,7 +1168,7 @@ function refreshVehicleHoverEffects() {
 
 function applyVehicleHoverIfNeeded(token) {
     if (!canvas?.ready || !token?.document) return;
-    if (!game.settings.get(MODULE_ID, "enableVehicleHoverEffect")) {
+    if (!getHoverSettingsForTokenDocument(token.document).enabled) {
         stopVehicleHoverForTokenId(token.id);
         return;
     }
@@ -1070,7 +1202,7 @@ function ensureVehicleHoverTicker() {
 }
 
 function updateVehicleHovers() {
-    if (!canvas?.ready || !game.settings.get(MODULE_ID, "enableVehicleHoverEffect")) {
+    if (!canvas?.ready) {
         stopAllVehicleHovers();
         return;
     }
@@ -1106,9 +1238,14 @@ function updateVehicleHovers() {
             state.baseY = position.y - state.offsetY;
         }
 
-        const amplitudeX = Math.max(0, getSettingNumber("vehicleHoverOffsetX", 2));
-        const amplitudeY = Math.max(0, getSettingNumber("vehicleHoverOffsetY", 3));
-        const speed = Math.max(0.1, getSettingNumber("vehicleHoverSpeed", 1));
+        const hoverSettings = getHoverSettingsForTokenDocument(token.document);
+        if (!hoverSettings.enabled) {
+            stopVehicleHoverState(tokenId, state);
+            continue;
+        }
+        const amplitudeX = Math.max(0, hoverSettings.offsetX);
+        const amplitudeY = Math.max(0, hoverSettings.offsetY);
+        const speed = Math.max(0.1, hoverSettings.speed);
         const startOffset = state.hoverSeed.startOffsetMs;
         const cycle = ((now + startOffset) * speed) / VEHICLE_HOVER_LOOP_MS;
         const primary = cycle * Math.PI * 2;
@@ -1210,7 +1347,8 @@ function startVehicleMotionEffects(tokenDocument, options) {
 
     stopVehicleMotionEffects(tokenDocument.id);
 
-    const thruster = game.settings.get(MODULE_ID, "enableThrusterEffect") ? createUnderTokenThruster(token) : null;
+    const effects = getProfileMotionSettings(tokenDocument);
+    const thruster = effects.enableThrusterEffect ? createUnderTokenThruster(token) : null;
     if (thruster) thruster.alpha = 0;
 
     const controller = {
@@ -1227,7 +1365,7 @@ function startVehicleMotionEffects(tokenDocument, options) {
         if (controller.destroyed) return;
 
         const progress = getMotionProgress(token, motion);
-        if (game.settings.get(MODULE_ID, "rotateBeforeMove")) {
+        if (effects.rotation.rotateBeforeMove) {
             updateSmoothRotation(tokenDocument, motion, progress, controller);
         } else {
             controller.currentRotation = motion.targetRotation;
@@ -1257,7 +1395,8 @@ function getFallbackMotion(tokenDocument, destination) {
         origin,
         destination,
         startRotation: normalizeDegrees(tokenDocument.rotation ?? 0),
-        targetRotation: normalizeDegrees(targetRotation + getVehicleRotationOffset())
+        targetRotation: normalizeDegrees(targetRotation + getVehicleRotationOffset(tokenDocument)),
+        rotationSettings: getRotationSettingsForTokenDocument(tokenDocument)
     };
 }
 
@@ -1279,12 +1418,13 @@ function updateSmoothRotation(tokenDocument, motion, moveProgress, controller) {
         motion.destination.x - motion.origin.x,
         motion.destination.y - motion.origin.y
     );
-    const finishDistance = Math.max(canvas.grid.size * 0.1, getSettingNumber("rotationFinishSquares", 2) * canvas.grid.size);
+    const rotationSettings = motion.rotationSettings ?? getRotationSettingsForTokenDocument(tokenDocument);
+    const finishDistance = Math.max(canvas.grid.size * 0.1, rotationSettings.rotationFinishSquares * canvas.grid.size);
     const rotationProgress = totalDistance <= finishDistance ? moveProgress : Math.min(1, moveProgress * totalDistance / finishDistance);
     const easedProgress = easeOutCubic(rotationProgress);
     const target = interpolateRotation(motion.startRotation, motion.targetRotation, easedProgress);
     const now = performance.now();
-    const interval = Math.max(25, getSettingNumber("rotationDelayMs", 75));
+    const interval = Math.max(25, rotationSettings.rotationDelayMs);
     controller.currentRotation = target;
 
     if (rotationProgress < 1 && now - controller.lastRotationUpdate < interval) return;
@@ -1546,6 +1686,7 @@ function clearThrusterPreview() {
 
 function getMovementSoundOptions(tokenDocument, providedProfile = null) {
     const profile = providedProfile ?? getShipProfile(getShipProfileName(tokenDocument));
+    const enabled = getProfileBoolean(profile, "enableMovementSound", "enableMovementSound");
     const hasProfilePath = Object.prototype.hasOwnProperty.call(profile ?? {}, "movementSoundPath");
     const hasProfileVolume = Object.prototype.hasOwnProperty.call(profile ?? {}, "movementSoundVolume");
     const src = String(hasProfilePath ? profile.movementSoundPath : game.settings.get(MODULE_ID, "movementSoundPath") ?? DEFAULT_MOVEMENT_SOUND_PATH).trim();
@@ -1556,7 +1697,68 @@ function getMovementSoundOptions(tokenDocument, providedProfile = null) {
         0.18
     );
 
-    return { src, volume };
+    return { enabled, src, volume };
+}
+
+function getProfileBoolean(profile, profileKey, settingKey) {
+    if (Object.prototype.hasOwnProperty.call(profile ?? {}, profileKey)) return Boolean(profile[profileKey]);
+    return Boolean(game.settings.get(MODULE_ID, settingKey));
+}
+
+function getProfileRotationSettings(profile = null) {
+    const rotation = profile?.rotationSettings ?? {};
+    return {
+        vehicleBowFacing: getValidVehicleBowFacing(rotation.vehicleBowFacing ?? game.settings.get(MODULE_ID, "vehicleBowFacing")),
+        enableShipRotation: Object.prototype.hasOwnProperty.call(rotation, "enableShipRotation") ? Boolean(rotation.enableShipRotation) : Boolean(game.settings.get(MODULE_ID, "enableShipRotation")),
+        rotateBeforeMove: Object.prototype.hasOwnProperty.call(rotation, "rotateBeforeMove") ? Boolean(rotation.rotateBeforeMove) : Boolean(game.settings.get(MODULE_ID, "rotateBeforeMove")),
+        rotationDelayMs: clampNumber(Number(rotation.rotationDelayMs), 25, 500, getSettingNumber("rotationDelayMs", 75)),
+        rotationFinishSquares: clampNumber(Number(rotation.rotationFinishSquares), 0.25, 10, getSettingNumber("rotationFinishSquares", 2)),
+        rotationOffset: clampNumber(Number(rotation.rotationOffset), -180, 180, getSettingNumber("rotationOffset", 0))
+    };
+}
+
+function getProfileHoverSettings(profile = null) {
+    const hover = profile?.hoverSettings ?? {};
+    return {
+        enabled: Object.prototype.hasOwnProperty.call(hover, "enabled") ? Boolean(hover.enabled) : Boolean(game.settings.get(MODULE_ID, "enableVehicleHoverEffect")),
+        offsetX: clampNumber(Number(hover.offsetX), 0, 50, getSettingNumber("vehicleHoverOffsetX", 2)),
+        offsetY: clampNumber(Number(hover.offsetY), 0, 50, getSettingNumber("vehicleHoverOffsetY", 3)),
+        speed: clampNumber(Number(hover.speed), 0.1, 5, getSettingNumber("vehicleHoverSpeed", 1))
+    };
+}
+
+function getProfileProtectionSettings(profile = null) {
+    const protection = profile?.protectionSettings ?? {};
+    return {
+        enabled: Object.prototype.hasOwnProperty.call(protection, "enabled") ? Boolean(protection.enabled) : Boolean(game.settings.get(MODULE_ID, "vehicleShieldAutomation")),
+        visualMode: getValidProtectionVisualMode(protection.visualMode ?? game.settings.get(MODULE_ID, "vehicleProtectionVisualMode"))
+    };
+}
+
+function getRotationSettingsForTokenDocument(tokenDocument) {
+    return getProfileRotationSettings(getShipProfile(getShipProfileName(tokenDocument)));
+}
+
+function getHoverSettingsForTokenDocument(tokenDocument) {
+    return getProfileHoverSettings(getShipProfile(getShipProfileName(tokenDocument)));
+}
+
+function getProtectionSettingsForActor(actor) {
+    const tokenDocument = (canvas?.tokens?.placeables ?? []).find(token => token.actor?.id === actor?.id)?.document;
+    if (tokenDocument) return getProtectionSettingsForTokenDocument(tokenDocument);
+    return getProfileProtectionSettings(getShipProfile(String(actor?.name ?? "")));
+}
+
+function getProtectionSettingsForTokenDocument(tokenDocument) {
+    return getProfileProtectionSettings(getShipProfile(getShipProfileName(tokenDocument)));
+}
+
+function getProfileMotionSettings(tokenDocument) {
+    const profile = getShipProfile(getShipProfileName(tokenDocument));
+    return {
+        enableThrusterEffect: getProfileBoolean(profile, "enableThrusterEffect", "enableThrusterEffect"),
+        rotation: getProfileRotationSettings(profile)
+    };
 }
 
 function getShipProfiles() {

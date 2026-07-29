@@ -10,7 +10,7 @@
             "url": "https://github.com/openkyle/full-speed-ahead"
         }
     ],
-    "version": "1.0.64",
+    "version": "1.0.65",
     "compatibility": {
         "minimum": "10",
         "verified": "11.312"

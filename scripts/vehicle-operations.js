@@ -125,6 +125,42 @@ class VehicleTargetResolver {
     }
 }
 
+function vehicleOperationsHasOwnerPermission(document, user) {
+    if (!document || !user) return false;
+    if (typeof document.testUserPermission === "function") return document.testUserPermission(user, "OWNER");
+    const ownerLevel = globalThis.CONST?.DOCUMENT_OWNERSHIP_LEVELS?.OWNER ?? 3;
+    const ownership = document.ownership || {};
+    return Number(ownership[user.id] ?? ownership.default ?? 0) >= ownerLevel;
+}
+
+function vehicleOperationsIsPlayerVehicle(tokenDocument) {
+    const actor = tokenDocument?.actor;
+    return game.users?.contents?.some(user => !user.isGM && (
+        vehicleOperationsHasOwnerPermission(actor, user) ||
+        vehicleOperationsHasOwnerPermission(tokenDocument, user)
+    )) === true;
+}
+
+function currentSceneVehicleOptions(target = {}) {
+    const scene = canvas?.scene;
+    const tokenDocuments = Array.from(scene?.tokens ?? []).filter(tokenDocument => tokenDocument?.actor?.type === "vehicle");
+    return tokenDocuments
+        .map(tokenDocument => {
+            const actor = tokenDocument.actor;
+            const playerVehicle = vehicleOperationsIsPlayerVehicle(tokenDocument);
+            const tokenName = tokenDocument.name || actor?.name || "Unnamed Vehicle";
+            const actorName = actor?.name || tokenName;
+            const label = tokenName === actorName ? tokenName : `${tokenName} (${actorName})`;
+            return {
+                id: tokenDocument.id,
+                label,
+                playerVehicle,
+                selected: tokenDocument.id === target?.tokenId
+            };
+        })
+        .sort((a, b) => Number(b.playerVehicle) - Number(a.playerVehicle) || a.label.localeCompare(b.label));
+}
+
 class VehicleModuleService {
     static isEquippedShipModule(item) {
         return ["equipment", "weapon"].includes(item?.type) && item?.system?.equipped === true;
@@ -160,6 +196,16 @@ class VehicleModuleService {
 
     static isShield(item) {
         return /shield generator/i.test(item?.name || "");
+    }
+
+    static shieldModules(actor) {
+        return Array.from(actor?.items ?? []).filter(item => this.isShipModuleItem(item) && this.isShield(item) && this.itemMaxHp(item) > 0);
+    }
+
+    static activeShield(actor) {
+        return this.shieldModules(actor)
+            .filter(item => this.itemHp(item) > 0)
+            .sort((a, b) => Number(this.isEquippedShipModule(b)) - Number(this.isEquippedShipModule(a)) || this.itemHp(b) - this.itemHp(a))[0] || null;
     }
 
     static findModule(actor, pattern) {
@@ -477,10 +523,10 @@ class VehicleDamageService {
             remaining = await this.applyToModule(state, fuelScoop, remaining);
             if (remaining > 0) await this.applyCarryover(state, remaining, fuelScoop.name);
         } else if (context === "mining") {
-            const shield = VehicleModuleService.findModule(actor, /shield generator|shield/i);
+            const shield = VehicleModuleService.activeShield(actor);
             const hull = VehicleModuleService.firstHealthyHull(actor);
             const selected = payload.targetModule && payload.targetModule !== "evenly" ? actor.items.get(payload.targetModule) : null;
-            const target = selected || VehicleModuleService.findModule(actor, /refinery/i) || (VehicleModuleService.itemHp(shield) > 0 ? shield : null) || hull;
+            const target = selected || VehicleModuleService.findModule(actor, /refinery/i) || shield || hull;
             if (target) {
                 remaining = await this.applyToModule(state, target, remaining);
                 if (remaining > 0) await this.applyCarryover(state, remaining, target.name);
@@ -488,8 +534,8 @@ class VehicleDamageService {
                 await this.applyCarryover(state, remaining, "asteroid debris impact");
             }
         } else {
-            const shield = VehicleModuleService.findModule(actor, /shield generator|shield/i);
-            if (VehicleModuleService.itemHp(shield) > 0) {
+            const shield = VehicleModuleService.activeShield(actor);
+            if (shield) {
                 const before = VehicleModuleService.itemHp(shield);
                 const dealt = Math.min(before, remaining);
                 await VehicleModuleService.updateModuleHp(shield, before - dealt);
@@ -513,7 +559,7 @@ class VehicleDamageService {
         const totalHp = await VehicleModuleService.syncVehicleHpFromModules(actor);
         if (state.tokenDamageEffect) await VehicleTokenEffectService.damage(actor);
         if (totalHp <= 0 && modules.length && damage > 0) state.destroyed.push(`<b style="color:red;">${escapeHtml(actor.name)} explodes into a ball of fiery force!</b>`);
-        const label = damageType === "thermal" ? "Thermal" : "Hull";
+        const label = context === "attack" ? "Combat" : (damageType === "thermal" ? "Thermal" : "Hull");
         await VehicleChatCardService.create({
             user: userId,
             speaker: { alias: "Full Speed Ahead Combat Damage" },
@@ -832,6 +878,11 @@ class VehicleOperationsApplication extends FormApplication {
         });
     }
 
+    constructor(object = {}, options = {}) {
+        super(object, options);
+        this.targetPayload = object;
+    }
+
     static open(initialTab = "attack") {
         const target = VehicleTargetResolver.current();
         if (!target) return null;
@@ -842,13 +893,25 @@ class VehicleOperationsApplication extends FormApplication {
     }
 
     static openSettings() {
+        if (game.fullSpeedAhead?.openSettings) return game.fullSpeedAhead.openSettings();
         const settings = game.settings?.sheet || (globalThis.SettingsConfig ? new globalThis.SettingsConfig() : null);
-        if (settings?.render) settings.render(true);
+        if (settings?.render) {
+            settings.render(true);
+            window.setTimeout(() => {
+                const html = settings?.element;
+                const filter = html?.find?.('input[name="filter"], input[type="search"], input[placeholder*="Filter"], input[placeholder*="Search"]')?.first();
+                if (filter?.length) filter.val("Full Speed Ahead").trigger("input").trigger("keyup").trigger("change");
+            }, 150);
+        }
         else ui.notifications.info("Open Configure Settings to edit Full Speed Ahead settings.");
     }
 
     get target() {
-        return this.object;
+        return this.targetPayload || this.object;
+    }
+
+    set target(value) {
+        this.targetPayload = value;
     }
 
     get actor() {
@@ -858,7 +921,7 @@ class VehicleOperationsApplication extends FormApplication {
     getData() {
         const actor = this.actor;
         const rolls = lastAttackAndDamageRolls();
-        const shield = VehicleModuleService.findModule(actor, /shield generator|shield/i);
+        const shield = VehicleModuleService.activeShield(actor);
         const shieldsUp = VehicleModuleService.itemHp(shield) > 0;
         const hull = VehicleModuleService.firstHealthyHull(actor);
         const fuelScoop = VehicleModuleService.findModule(actor, /fuel scoop/i);
@@ -869,6 +932,7 @@ class VehicleOperationsApplication extends FormApplication {
         return {
             target: this.target,
             targetName: actor.name,
+            sceneVehicles: currentSceneVehicleOptions(this.target),
             shieldsUp,
             shieldStatus: shieldsUp ? "Shields Up" : "Shields Down",
             shieldText: shieldsUp ? `${actor.name} is being attacked. Shields are up, so damage will hit shields first.` : `${actor.name} is being attacked. No shields are active, so damage will go to hull protection before vulnerable modules.`,
@@ -892,7 +956,7 @@ class VehicleOperationsApplication extends FormApplication {
         const evenly = { id: "evenly", label: "Evenly Among Vulnerable Modules", selected: !hull };
         return {
             attackModules: shieldsUp && shield
-                ? modules.map(item => ({ id: item.id, label: `AC ${VehicleModuleService.itemAc(item)} - ${item.name}${item.id === shield?.id ? " (Shields absorb first)" : ""}`, selected: item.id === shield?.id }))
+                ? [{ id: shield.id, label: `${shield.name} (shields absorb first)`, selected: true }]
                 : [evenly].concat(base.map(option => ({ ...option, selected: option.id === hull?.id }))),
             fuelModules: base.map(option => ({ ...option, selected: option.id === fuelScoop?.id })),
             miningModules: [{ id: "evenly", label: "Evenly Among Vulnerable Modules", selected: !refinery && !shieldsUp && !hull }].concat(base.map(option => ({ ...option, selected: option.id === (refinery || (shieldsUp ? shield : null) || hull)?.id }))),
@@ -903,6 +967,7 @@ class VehicleOperationsApplication extends FormApplication {
     activateListeners(html) {
         super.activateListeners(html);
         this.activateOperationTab(html, this.options.initialTab || "attack");
+        html.find('[name="vehicleTarget"]').on("change", event => this.changeVehicleTarget(event.currentTarget.value, html));
         html.find("[data-action]").on("click", event => {
             event.preventDefault();
             const action = event.currentTarget.dataset.action;
@@ -920,9 +985,25 @@ class VehicleOperationsApplication extends FormApplication {
         this.updateScanMode(html);
     }
 
+    changeVehicleTarget(tokenId, html) {
+        const tokenDocument = canvas?.scene?.tokens?.get(tokenId);
+        if (!tokenDocument?.actor || tokenDocument.actor.type !== "vehicle") {
+            ui.notifications.warn("That vehicle is no longer available on the current scene.");
+            return;
+        }
+        this.options.initialTab = this.activeOperationTab(html);
+        this.target = VehicleTargetResolver.packToken(tokenDocument);
+        this.render(false);
+    }
+
+    activeOperationTab(html) {
+        return html.find(".fsa-vehicle-ops-tabs .item.active").data("tab") || this._tabs?.[0]?.active || this.options.initialTab || "attack";
+    }
+
     submitDamage(html, context) {
         const prefix = context === "attack" ? "" : `${context}-`;
-        VehicleOperationsSocketService.request("applyVehicleDamage", { ...this.target, context, damageType: html.find(`[name="${prefix}damageType"]`).val(), attack: Number(html.find(`[name="${prefix}attack"]`).val() || 0), damage: Math.max(0, Number(html.find(`[name="${prefix}damage"]`).val() || 0)), targetModule: html.find(`[name="${prefix}targetModule"]`).val() || "evenly" });
+        const damageType = context === "attack" ? "hull" : html.find(`[name="${prefix}damageType"]`).val();
+        VehicleOperationsSocketService.request("applyVehicleDamage", { ...this.target, context, damageType, attack: Number(html.find(`[name="${prefix}attack"]`).val() || 0), damage: Math.max(0, Number(html.find(`[name="${prefix}damage"]`).val() || 0)), targetModule: html.find(`[name="${prefix}targetModule"]`).val() || "evenly" });
         this.close();
     }
 

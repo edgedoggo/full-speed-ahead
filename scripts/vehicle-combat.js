@@ -71,8 +71,6 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
             vehicleCrewMatchMode: game.settings.get(MODULE_ID, "vehicleCrewMatchMode"),
             vehicleCombatDisplayMode: game.settings.get(MODULE_ID, "vehicleCombatDisplayMode"),
             vehicleCombatShipIcon: game.settings.get(MODULE_ID, "vehicleCombatShipIcon"),
-            vehicleShieldAutomation: game.settings.get(MODULE_ID, "vehicleShieldAutomation"),
-            vehicleProtectionVisualMode: game.settings.get(MODULE_ID, "vehicleProtectionVisualMode"),
             vehicleCombatDebug: game.settings.get(MODULE_ID, "vehicleCombatDebug"),
             vehicleOpsEnabled: safeGetModuleSetting("vehicleOpsEnabled", true),
             vehicleOpsPlayersCanOpen: safeGetModuleSetting("vehicleOpsPlayersCanOpen", true),
@@ -106,23 +104,7 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
                     selected: game.settings.get(MODULE_ID, "vehicleCrewMatchMode") === VEHICLE_CREW_MATCH_MODES.MATCH_ONLY
                 }
             ],
-            protectionVisualModes: [
-                {
-                    value: VEHICLE_PROTECTION_VISUAL_MODES.BUILT_IN,
-                    label: "Built-In FSA Glow",
-                    selected: game.settings.get(MODULE_ID, "vehicleProtectionVisualMode") === VEHICLE_PROTECTION_VISUAL_MODES.BUILT_IN
-                },
-                {
-                    value: VEHICLE_PROTECTION_VISUAL_MODES.TOKEN_MAGIC,
-                    label: "TokenMagic FX",
-                    selected: game.settings.get(MODULE_ID, "vehicleProtectionVisualMode") === VEHICLE_PROTECTION_VISUAL_MODES.TOKEN_MAGIC
-                },
-                {
-                    value: VEHICLE_PROTECTION_VISUAL_MODES.BOTH,
-                    label: "Built-In + TokenMagic",
-                    selected: game.settings.get(MODULE_ID, "vehicleProtectionVisualMode") === VEHICLE_PROTECTION_VISUAL_MODES.BOTH
-                }
-            ]
+            protectionVisualModes: []
         };
     }
 
@@ -145,8 +127,6 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
         await game.settings.set(MODULE_ID, "vehicleCrewMatchMode", getValidCrewMatchMode(formData.vehicleCrewMatchMode));
         await game.settings.set(MODULE_ID, "vehicleCombatDisplayMode", String(formData.vehicleCombatDisplayMode || VEHICLE_COMBAT_DISPLAY_MODES.FULL));
         await game.settings.set(MODULE_ID, "vehicleCombatShipIcon", String(formData.vehicleCombatShipIcon || DEFAULT_SHIP_BADGE).trim());
-        await game.settings.set(MODULE_ID, "vehicleShieldAutomation", Boolean(formData.vehicleShieldAutomation));
-        await game.settings.set(MODULE_ID, "vehicleProtectionVisualMode", getValidProtectionVisualMode(formData.vehicleProtectionVisualMode));
         await game.settings.set(MODULE_ID, "vehicleCombatDebug", Boolean(formData.vehicleCombatDebug));
         await safeSetModuleSetting("vehicleOpsEnabled", Boolean(formData.vehicleOpsEnabled));
         await safeSetModuleSetting("vehicleOpsPlayersCanOpen", Boolean(formData.vehicleOpsPlayersCanOpen));
@@ -303,28 +283,29 @@ function isVehicleCombatEnabled() {
     return Boolean(game.settings.get(MODULE_ID, "vehicleCombatCrewMode"));
 }
 
-function isVehicleShieldAutomationEnabled() {
-    return Boolean(game.settings.get(MODULE_ID, "vehicleShieldAutomation"));
+function getActorProtectionSettings(actor, tokenDocument = null) {
+    return game.fullSpeedAhead?.getProtectionSettingsForTokenDocument?.(tokenDocument) ?? game.fullSpeedAhead?.getProtectionSettingsForActor?.(actor) ?? {
+        enabled: Boolean(game.settings.get(MODULE_ID, "vehicleShieldAutomation")),
+        visualMode: getValidProtectionVisualMode(game.settings.get(MODULE_ID, "vehicleProtectionVisualMode"))
+    };
 }
 
-function canManageVehicleShields() {
-    return canvas?.ready && isVehicleShieldAutomationEnabled();
+function isVehicleShieldAutomationEnabled(actor = null, tokenDocument = null) {
+    return Boolean(getActorProtectionSettings(actor, tokenDocument).enabled);
+}
+
+function canManageVehicleShields(actor = null, tokenDocument = null) {
+    return canvas?.ready && (!actor || isVehicleShieldAutomationEnabled(actor, tokenDocument));
 }
 
 async function syncVehicleShields() {
     if (!canvas?.ready || !canvas.tokens) return;
 
-    if (!isVehicleShieldAutomationEnabled()) {
-        await Promise.all((canvas.tokens.placeables ?? []).map(token => removeVehicleProtectionVisuals(token)));
-        stopAllProtectionEffects();
-        return;
-    }
-
     await Promise.all((canvas.tokens.placeables ?? []).map(token => syncVehicleShieldForToken(token)));
 }
 
 async function syncVehicleShieldsForActor(actor) {
-    if (!canManageVehicleShields() || !isVehicleActor(actor)) return;
+    if (!canvas?.ready || !isVehicleActor(actor)) return;
     const tokens = (canvas.tokens?.placeables ?? []).filter(token => token.actor?.id === actor.id);
     await Promise.all(tokens.map(token => syncVehicleShieldForToken(token)));
 }
@@ -335,13 +316,17 @@ async function syncVehicleShieldsForItem(item) {
 }
 
 async function syncVehicleShieldForToken(token) {
-    if (!canManageVehicleShields()) return;
+    if (!canvas?.ready) return;
     if (!token?.actor || !isVehicleActor(token.actor) || token.document?.hidden) {
         await removeVehicleProtectionVisuals(token);
         return;
     }
+    if (!canManageVehicleShields(token.actor, token.document)) {
+        await removeVehicleProtectionVisuals(token);
+        return;
+    }
 
-    const protection = getVehicleProtectionStatus(token.actor);
+    const protection = getVehicleProtectionStatus(token.actor, token.document);
     if (!protection.shield.online && !protection.morphogenetic.online) {
         await removeVehicleProtectionVisuals(token);
         return;
@@ -351,8 +336,10 @@ async function syncVehicleShieldForToken(token) {
     await syncTokenMagicProtectionEffects(token, protection);
 }
 
-function getVehicleProtectionStatus(actor) {
+function getVehicleProtectionStatus(actor, tokenDocument = null) {
+    const settings = getActorProtectionSettings(actor, tokenDocument);
     return {
+        visualMode: settings.visualMode,
         shield: getVehicleShieldStatus(actor),
         morphogenetic: getVehicleMorphogeneticStatus(actor)
     };
@@ -425,7 +412,7 @@ function getItemHpInfo(item) {
 }
 
 function syncBuiltInProtectionEffect(token, protection) {
-    if (!shouldUseBuiltInProtectionVisuals()) {
+    if (!shouldUseBuiltInProtectionVisuals(protection)) {
         stopProtectionEffectForToken(token.id);
         return;
     }
@@ -474,7 +461,7 @@ function ensureProtectionTicker() {
 }
 
 function updateProtectionEffects() {
-    if (!canvas?.ready || !isVehicleShieldAutomationEnabled() || !shouldUseBuiltInProtectionVisuals()) {
+    if (!canvas?.ready) {
         stopAllProtectionEffects();
         return;
     }
@@ -482,7 +469,7 @@ function updateProtectionEffects() {
     const now = performance.now();
     for (const [tokenId, state] of activeProtectionEffects) {
         const token = canvas.tokens?.get(tokenId);
-        if (!token || token.document?.hidden || !isVehicleActor(token.actor)) {
+        if (!token || token.document?.hidden || !isVehicleActor(token.actor) || !isVehicleShieldAutomationEnabled(token.actor, token.document)) {
             stopProtectionEffectForToken(tokenId);
             continue;
         }
@@ -610,7 +597,7 @@ function getProtectionEffectPhase(tokenId) {
 }
 
 async function syncTokenMagicProtectionEffects(token, protection) {
-    if (!shouldUseTokenMagicProtectionVisuals()) {
+    if (!shouldUseTokenMagicProtectionVisuals(protection)) {
         await removeVehicleProtectionVisuals(token, { tokenMagicOnly: true });
         return;
     }
@@ -706,18 +693,18 @@ async function removeTokenMagicFilter(token, filterId) {
     }
 }
 
-function shouldUseBuiltInProtectionVisuals() {
-    const mode = getProtectionVisualMode();
+function shouldUseBuiltInProtectionVisuals(protection = null) {
+    const mode = getProtectionVisualMode(protection);
     return mode === VEHICLE_PROTECTION_VISUAL_MODES.BUILT_IN || mode === VEHICLE_PROTECTION_VISUAL_MODES.BOTH;
 }
 
-function shouldUseTokenMagicProtectionVisuals() {
-    const mode = getProtectionVisualMode();
+function shouldUseTokenMagicProtectionVisuals(protection = null) {
+    const mode = getProtectionVisualMode(protection);
     return mode === VEHICLE_PROTECTION_VISUAL_MODES.TOKEN_MAGIC || mode === VEHICLE_PROTECTION_VISUAL_MODES.BOTH;
 }
 
-function getProtectionVisualMode() {
-    return getValidProtectionVisualMode(game.settings.get(MODULE_ID, "vehicleProtectionVisualMode"));
+function getProtectionVisualMode(protection = null) {
+    return getValidProtectionVisualMode(protection?.visualMode ?? game.settings.get(MODULE_ID, "vehicleProtectionVisualMode"));
 }
 
 function getValidProtectionVisualMode(value) {

@@ -1,19 +1,26 @@
 <form class="fsa-vehicle-ops" autocomplete="off">
+    <div class="form-group fsa-vehicle-ops-vehicle-picker">
+        <label>Vehicle</label>
+        <select name="vehicleTarget">
+            {{#each sceneVehicles}}
+            <option value="{{id}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+            {{else}}
+            <option value="">No vehicles on this scene</option>
+            {{/each}}
+        </select>
+    </div>
+
     <div class="fsa-vehicle-ops-body">
         <section class="tab active" data-tab="attack" data-group="primary">
             <header class="fsa-vehicle-ops-pane-header">
                 <h2><i class="fas fa-bomb"></i> Attack Damage</h2>
                 <p><strong>{{targetName}}</strong> · {{shieldStatus}}</p>
             </header>
+            {{#if shieldsUp}}
+            <p class="notes">Shields absorb attack damage first. Any carryover damage is routed to the ship afterward.</p>
+            {{else}}
             <p class="notes">Only modules which are lower than the AC of the attack will be hit in the attack.</p>
-
-            <div class="form-group">
-                <label>Damage Type</label>
-                <select name="damageType">
-                    <option value="thermal" {{#if shieldsUp}}selected{{/if}}>Thermal / Shield</option>
-                    <option value="hull" {{#unless shieldsUp}}selected{{/unless}}>Hull</option>
-                </select>
-            </div>
+            {{/if}}
 
             <div class="form-group">
                 <label>Attack</label>
