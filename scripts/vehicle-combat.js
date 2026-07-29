@@ -23,7 +23,7 @@ const SHIELD_COLORS = {
     D: { primary: 0xffff00, secondary: 0xffff99 },
     PRISMATIC: { primary: 0x9999ff, secondary: 0xff00ff }
 };
-const MORPHOGENETIC_COLORS = { primary: 0xffffff, secondary: 0x99ddff };
+const MORPHOGENETIC_COLORS = { primary: 0x9b4dff, secondary: 0xe2b7ff };
 const VEHICLE_CREW_PATHS = [
     "system.cargo.crew",
     "system.details.crew",
@@ -115,15 +115,15 @@ Hooks.once("init", () => {
     game.settings.registerMenu(MODULE_ID, "vehicleCombatConfig", {
         name: "Vehicle Combat Settings",
         label: "Open Vehicle Combat Settings",
-        hint: "Configure whether vehicle combat sends crew members to the combat tracker instead of the vehicle.",
+        hint: "Configure whether vehicle combat sends crew members to initiative instead of the vehicle.",
         icon: "fas fa-users-cog",
         type: FullSpeedAheadVehicleCombatConfig,
         restricted: true
     });
 
     registerVehicleCombatSetting("vehicleCombatCrewMode", {
-        name: "Vehicles Send Crew to Combat rather than the Vehicle",
-        hint: "When a vehicle token is added to combat, replace its combatant with combatants for the matching crew listed on the vehicle sheet.",
+        name: "Send Crew to Combat Initiative, not Vehicle",
+        hint: "When selected, the crew members will be generated or matched and placed in the initiative, but not the ship.",
         type: Boolean,
         default: false,
         config: false,
@@ -157,7 +157,7 @@ Hooks.once("init", () => {
 
     registerVehicleCombatSetting("vehicleShieldAutomation", {
         name: "Automatically Manage Vehicle Shields",
-        hint: "Use Shield Generator equipment HP and Morphogenetic Field equipment to turn vehicle protection visuals on or off.",
+        hint: "Use Shield Generator equipment HP and Morphogenetic Field equipment to turn vehicle protection visuals on or off. Morphogenetic Field is treated as a purple shield.",
         type: Boolean,
         default: false,
         config: false,
@@ -361,24 +361,26 @@ function syncBuiltInProtectionEffect(token, protection) {
 
 function getOrCreateProtectionEffect(token) {
     const existing = activeProtectionEffects.get(token.id);
-    if (existing && !existing.graphics.destroyed) {
+    if (existing && !existing.container.destroyed) {
         existing.token = token;
         return existing;
     }
 
-    const graphics = new PIXI.Graphics();
-    graphics.blendMode = PIXI.BLEND_MODES.ADD;
-    graphics.eventMode = "none";
-    graphics.interactive = false;
-    graphics.zIndex = getTokenSortValue(token) + 1;
+    const container = new PIXI.Container();
+    container.blendMode = PIXI.BLEND_MODES.ADD;
+    container.eventMode = "none";
+    container.interactive = false;
+    container.sortableChildren = true;
+    container.zIndex = getTokenSortValue(token) - 1;
 
     const layer = canvas.primary ?? canvas.effects ?? canvas.tokens;
     layer.sortableChildren = true;
-    layer.addChild(graphics);
+    layer.addChild(container);
 
     const state = {
         token,
-        graphics,
+        container,
+        sprites: new Map(),
         protection: null,
         phase: getProtectionEffectPhase(token.id)
     };
@@ -414,8 +416,8 @@ function updateProtectionEffects() {
 }
 
 function drawProtectionEffect(state, now) {
-    const { token, graphics, protection } = state;
-    if (!token || !graphics || graphics.destroyed || !protection) return;
+    const { token, container, protection } = state;
+    if (!token || !container || container.destroyed || !protection) return;
 
     const shieldOnline = protection.shield.online;
     const morphOnline = protection.morphogenetic.online;
@@ -425,60 +427,87 @@ function drawProtectionEffect(state, now) {
     }
 
     const pulse = (Math.sin((now / 900) + state.phase) + 1) / 2;
-    const centerX = token.x + token.w / 2;
-    const centerY = token.y + token.h / 2;
-    const radiusX = Math.max(token.w, canvas.grid?.size ?? 100) * (0.54 + pulse * 0.025);
-    const radiusY = Math.max(token.h, canvas.grid?.size ?? 100) * (0.54 + pulse * 0.025);
-
-    graphics.clear();
-    graphics.zIndex = getTokenSortValue(token) + 1;
+    container.zIndex = getTokenSortValue(token) - 1;
+    hideProtectionSprites(state);
 
     if (shieldOnline) {
         const colors = SHIELD_COLORS[protection.shield.type] ?? SHIELD_COLORS.B;
-        drawGlowEllipse(graphics, centerX, centerY, radiusX, radiusY, colors.primary, colors.secondary, 0.34 + pulse * 0.18);
+        drawTextureGlowEffect(state, "shield", colors, 1 + pulse * 0.035, 0.44 + pulse * 0.2);
     }
 
     if (morphOnline) {
         const morphPulse = (Math.sin((now / 520) + state.phase * 1.7) + 1) / 2;
-        drawGlowEllipse(graphics, centerX, centerY, radiusX * 1.08, radiusY * 1.08, MORPHOGENETIC_COLORS.primary, MORPHOGENETIC_COLORS.secondary, 0.22 + morphPulse * 0.14, true);
+        drawTextureGlowEffect(state, "morphogenetic", MORPHOGENETIC_COLORS, 1.045 + morphPulse * 0.03, 0.34 + morphPulse * 0.16);
     }
 }
 
-function drawGlowEllipse(graphics, centerX, centerY, radiusX, radiusY, primary, secondary, alpha, broken = false) {
-    graphics.lineStyle(12, secondary, alpha * 0.18);
-    graphics.drawEllipse(centerX, centerY, radiusX, radiusY);
-    graphics.lineStyle(6, primary, alpha * 0.36);
-    graphics.drawEllipse(centerX, centerY, radiusX * 0.99, radiusY * 0.99);
-    graphics.lineStyle(2, secondary, Math.min(0.9, alpha + 0.18));
+function drawTextureGlowEffect(state, prefix, colors, scale, alpha) {
+    const layers = [
+        { key: "outer", color: colors.secondary, scale: scale + 0.075, alpha: alpha * 0.36, blur: 18 },
+        { key: "middle", color: colors.primary, scale: scale + 0.04, alpha: alpha * 0.58, blur: 10 },
+        { key: "inner", color: colors.secondary, scale: scale + 0.018, alpha: Math.min(0.95, alpha), blur: 3 }
+    ];
 
-    if (!broken) {
-        graphics.drawEllipse(centerX, centerY, radiusX * 0.985, radiusY * 0.985);
-        return;
-    }
-
-    const segments = 16;
-    for (let index = 0; index < segments; index += 2) {
-        const start = (index / segments) * Math.PI * 2;
-        const end = ((index + 1.15) / segments) * Math.PI * 2;
-        drawEllipseArc(graphics, centerX, centerY, radiusX * 0.985, radiusY * 0.985, start, end);
-    }
+    layers.forEach((layer, index) => {
+        const sprite = getProtectionSprite(state, `${prefix}-${layer.key}`, layer.blur);
+        syncProtectionSprite(sprite, state.token, layer.color, layer.alpha, layer.scale, index);
+    });
 }
 
-function drawEllipseArc(graphics, centerX, centerY, radiusX, radiusY, start, end) {
-    const steps = 8;
-    for (let step = 0; step <= steps; step++) {
-        const angle = start + (end - start) * (step / steps);
-        const x = centerX + Math.cos(angle) * radiusX;
-        const y = centerY + Math.sin(angle) * radiusY;
-        if (step === 0) graphics.moveTo(x, y);
-        else graphics.lineTo(x, y);
-    }
+function hideProtectionSprites(state) {
+    for (const sprite of state.sprites.values()) sprite.visible = false;
+}
+
+function getProtectionSprite(state, key, blur) {
+    let sprite = state.sprites.get(key);
+    if (sprite && !sprite.destroyed) return sprite;
+
+    sprite = new PIXI.Sprite(getTokenTexture(state.token));
+    sprite.anchor.set(0.5, 0.5);
+    sprite.blendMode = PIXI.BLEND_MODES.ADD;
+    sprite.eventMode = "none";
+    sprite.interactive = false;
+    const blurFilter = createBlurFilter(blur);
+    sprite.filters = blurFilter ? [blurFilter] : null;
+    state.container.addChild(sprite);
+    state.sprites.set(key, sprite);
+    return sprite;
+}
+
+function syncProtectionSprite(sprite, token, tint, alpha, scale, zIndex) {
+    const texture = getTokenTexture(token);
+    if (texture && sprite.texture !== texture) sprite.texture = texture;
+    sprite.visible = Boolean(texture);
+    sprite.x = token.x + token.w / 2;
+    sprite.y = token.y + token.h / 2;
+    sprite.width = token.w * scale;
+    sprite.height = token.h * scale;
+    sprite.rotation = getTokenRotationRadians(token);
+    sprite.tint = tint;
+    sprite.alpha = alpha;
+    sprite.zIndex = zIndex;
+}
+
+function getTokenTexture(token) {
+    return token?.mesh?.texture || token?.icon?.texture || PIXI.Texture.EMPTY;
+}
+
+function createBlurFilter(strength) {
+    const FilterClass = PIXI.BlurFilter || PIXI.filters?.BlurFilter;
+    if (!FilterClass) return null;
+    const filter = new FilterClass(strength, 4);
+    filter.padding = Math.max(20, strength * 2);
+    return filter;
+}
+
+function getTokenRotationRadians(token) {
+    return Number(token?.document?.rotation || 0) * (Math.PI / 180);
 }
 
 function stopProtectionEffectForToken(tokenId) {
     const state = activeProtectionEffects.get(tokenId);
     if (!state) return;
-    state.graphics.destroy({ children: true });
+    state.container.destroy({ children: true });
     activeProtectionEffects.delete(tokenId);
     if (!activeProtectionEffects.size) stopProtectionTicker();
 }
@@ -547,17 +576,20 @@ async function syncTokenMagicMorphogeneticFilter(token, morphogenetic) {
     }
 
     const params = [{
-        filterType: "electric",
+        filterType: "glow",
         filterId: MORPHOGENETIC_FILTER_ID,
-        color: 0xffffff,
-        time: 0,
-        blend: 1,
-        intensity: 5,
+        outerStrength: 7,
+        innerStrength: 0,
+        color: MORPHOGENETIC_COLORS.primary,
+        quality: 0.5,
+        padding: 12,
         animated: {
-            time: {
+            color: {
                 active: true,
-                speed: 0.0002,
-                animType: "move"
+                loopDuration: 2400,
+                animType: "colorOscillation",
+                val1: MORPHOGENETIC_COLORS.primary,
+                val2: MORPHOGENETIC_COLORS.secondary
             }
         }
     }];

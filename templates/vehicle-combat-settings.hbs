@@ -1,8 +1,8 @@
 <form autocomplete="off">
     <div class="form-group">
-        <label>Vehicles Send Crew to Combat rather than the Vehicle</label>
+        <label>Send Crew to Combat Initiative, not Vehicle</label>
         <input type="checkbox" name="vehicleCombatCrewMode" {{checked vehicleCombatCrewMode}}>
-        <p class="notes">When a vehicle is added to combat, replace it with combatants for the crew listed on the vehicle sheet.</p>
+        <p class="notes">When selected, the crew members will be generated or matched and placed in the initiative, but not the ship.</p>
     </div>
 
     <hr>
@@ -34,7 +34,7 @@
     <div class="form-group">
         <label>Automatically Manage Vehicle Shields</label>
         <input type="checkbox" name="vehicleShieldAutomation" {{checked vehicleShieldAutomation}}>
-        <p class="notes">Use Shield Generator equipment HP and Morphogenetic Field equipment to turn vehicle protection visuals on or off. Supports Shield Generator [A], [B], [C], [D], and [Prismatic].</p>
+        <p class="notes">Use Shield Generator equipment HP and Morphogenetic Field equipment to turn vehicle protection visuals on or off. Morphogenetic Field is treated as a purple shield. Supports Shield Generator [A], [B], [C], [D], and [Prismatic].</p>
     </div>
 
     <div class="form-group">
@@ -46,7 +46,7 @@
                 {{/each}}
             </select>
         </div>
-        <p class="notes">Built-In FSA Glow draws a soft pulsating outline without TokenMagic. TokenMagic FX uses compatible TokenMagic filters when that module is installed.</p>
+        <p class="notes">Built-In FSA Glow draws a soft pulsating outline from the token silhouette without TokenMagic. TokenMagic FX uses compatible TokenMagic glow filters when that module is installed.</p>
     </div>
 
     <hr>
