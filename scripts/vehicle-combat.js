@@ -54,6 +54,7 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
             vehicleCombatDebug: game.settings.get(MODULE_ID, "vehicleCombatDebug"),
             vehicleOpsEnabled: safeGetModuleSetting("vehicleOpsEnabled", true),
             vehicleOpsPlayersCanOpen: safeGetModuleSetting("vehicleOpsPlayersCanOpen", true),
+            vehicleOpsShowFloatingMenuPlayers: safeGetModuleSetting("vehicleOpsShowFloatingMenuPlayers", true),
             vehicleOpsScansEnabled: safeGetModuleSetting("vehicleOpsScansEnabled", true),
             vehicleOpsRepairCostPerHp: safeGetModuleSetting("vehicleOpsRepairCostPerHp", 100),
             vehicleOpsRepairCostPerShieldPoint: safeGetModuleSetting("vehicleOpsRepairCostPerShieldPoint", 100),
@@ -114,6 +115,7 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
         await game.settings.set(MODULE_ID, "vehicleCombatDebug", Boolean(formData.vehicleCombatDebug));
         await safeSetModuleSetting("vehicleOpsEnabled", Boolean(formData.vehicleOpsEnabled));
         await safeSetModuleSetting("vehicleOpsPlayersCanOpen", Boolean(formData.vehicleOpsPlayersCanOpen));
+        await safeSetModuleSetting("vehicleOpsShowFloatingMenuPlayers", Boolean(formData.vehicleOpsShowFloatingMenuPlayers));
         await safeSetModuleSetting("vehicleOpsScansEnabled", Boolean(formData.vehicleOpsScansEnabled));
         await safeSetModuleSetting("vehicleOpsRepairCostPerHp", Math.max(0, Number(formData.vehicleOpsRepairCostPerHp || 0)));
         await safeSetModuleSetting("vehicleOpsRepairCostPerShieldPoint", Math.max(0, Number(formData.vehicleOpsRepairCostPerShieldPoint || 0)));

@@ -980,8 +980,7 @@ class FullSpeedAheadFloatingMenu {
 
     static render() {
         if (document.getElementById(this.id)) return;
-        if (!game.settings.get(FSA_MODULE_ID, "vehicleOpsEnabled")) return;
-        if (!game.user.isGM && !game.settings.get(FSA_MODULE_ID, "vehicleOpsPlayersCanOpen")) return;
+        if (!canShowFsaFloatingMenu()) return;
 
         const pos = game.settings.get(FSA_MODULE_ID, "vehicleOpsFloatingMenuPosition") || { left: 14, top: 125 };
         const menu = document.createElement("div");
@@ -1094,11 +1093,23 @@ function shouldScheduleVehicleModuleSync(item, options = {}) {
     return VehicleModuleService.isShipModuleItem(item) || ["equipment", "weapon"].includes(item.type);
 }
 
+function canShowFsaFloatingMenu() {
+    if (!game.settings.get(FSA_MODULE_ID, "vehicleOpsEnabled")) return false;
+    if (game.user.isGM) return true;
+    return game.settings.get(FSA_MODULE_ID, "vehicleOpsPlayersCanOpen") && game.settings.get(FSA_MODULE_ID, "vehicleOpsShowFloatingMenuPlayers");
+}
+
+function refreshFsaFloatingMenu() {
+    FullSpeedAheadFloatingMenu.close();
+    FullSpeedAheadFloatingMenu.render();
+}
+
 function registerVehicleOpsSettings() {
     const register = (key, data) => game.settings.register(FSA_MODULE_ID, key, { scope: "world", config: true, ...data });
     register("vehicleOperationsData", { name: "Vehicle Operations Data", type: Object, default: foundry.utils.deepClone(FSA_DEFAULT_DATA), config: false });
-    register("vehicleOpsEnabled", { name: "Enable Vehicle Operations", hint: "Enable Full Speed Ahead's Apply Damage, Fuel Scooping, Mining Damage, Scans, Repair Ship, Heat Sink, and cargo failure tools.", type: Boolean, default: true, config: false });
-    register("vehicleOpsPlayersCanOpen", { name: "Players Can Open Vehicle Operations", hint: "Allow non-GM users to open the vehicle operations window. Mutations still execute through the GM.", type: Boolean, default: true, config: false });
+    register("vehicleOpsEnabled", { name: "Enable Vehicle Operations", hint: "Enable Full Speed Ahead's Apply Damage, Fuel Scooping, Mining Damage, Scans, Repair Ship, Heat Sink, and cargo failure tools.", type: Boolean, default: true, config: false, onChange: refreshFsaFloatingMenu });
+    register("vehicleOpsPlayersCanOpen", { name: "Players Can Open Vehicle Operations", hint: "Allow non-GM users to open the vehicle operations window. Mutations still execute through the GM.", type: Boolean, default: true, config: false, onChange: refreshFsaFloatingMenu });
+    register("vehicleOpsShowFloatingMenuPlayers", { name: "Show FSA Floating Menu to Players", hint: "Show the draggable FSA floating operations menu to non-GM users.", type: Boolean, default: true, config: false, onChange: refreshFsaFloatingMenu });
     register("vehicleOpsFloatingMenuPosition", { name: "Vehicle Operations Floating Menu Position", type: Object, default: { left: 14, top: 125 }, config: false });
     register("vehicleOpsScansEnabled", { name: "Enable Vehicle Operation Scans", hint: "Allow Tactical, Manifest, and Wake scans from the vehicle operations window.", type: Boolean, default: true, config: false });
     register("vehicleOpsRepairCostPerHp", { name: "Fallback Repair Cost Per Module HP", hint: "Used when TradeHub is unavailable or does not expose a repair HP cost.", type: Number, default: 100, config: false });

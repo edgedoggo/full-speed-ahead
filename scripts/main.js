@@ -431,7 +431,7 @@ Hooks.once("init", () => {
 
     game.settings.registerMenu(MODULE_ID, "effectsConfig", {
         name: "Movement Effects",
-        label: "Configure Ship Sound, Thruster, Rotation",
+        label: "Configure, Sound, Thrust, Rotate",
         hint: "Open the same movement effects panel used by the vehicle token HUD gear.",
         icon: "fas fa-cog",
         type: FullSpeedAheadEffectsConfig,
