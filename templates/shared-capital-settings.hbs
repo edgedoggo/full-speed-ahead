@@ -1,0 +1,40 @@
+<form class="fsa-shared-capital" autocomplete="off">
+    <section class="fsa-capital-card">
+        <div class="fsa-capital-title">Shared Capital</div>
+        <div class="fsa-capital-balance">{{formattedCapital}}</div>
+        <p class="notes">{{statusText}}</p>
+    </section>
+
+    <div class="form-group">
+        <label>Active Source</label>
+        <div class="form-fields">
+            <input type="text" value="{{sourceLabel}}" readonly>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>Capital Action</label>
+        <div class="form-fields">
+            <select name="capitalMode">
+                <option value="add">Add to shared capital</option>
+                <option value="subtract">Subtract from shared capital</option>
+                <option value="replace">Replace shared capital</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>Amount</label>
+        <div class="form-fields">
+            <input type="number" name="capitalAmount" value="0" min="0" step="1">
+        </div>
+    </div>
+
+    <p class="notes">This is one shared ledger. When TradeHub Markets is active, Full Speed Ahead uses TradeHub's internal capital. When it is not active, Full Speed Ahead stores the same ledger locally.</p>
+
+    <footer class="sheet-footer flexrow">
+        <button type="submit">
+            <i class="fas fa-save"></i> Save
+        </button>
+    </footer>
+</form>

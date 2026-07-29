@@ -120,6 +120,26 @@
     text-align: center;
 }
 
+.fsa-shared-capital .fsa-capital-card {
+    border-bottom: 1px solid rgba(80, 80, 72, 0.45);
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    text-align: center;
+}
+
+.fsa-shared-capital .fsa-capital-title {
+    font-weight: 800;
+    line-height: 1.15;
+}
+
+.fsa-shared-capital .fsa-capital-balance {
+    color: #087708;
+    font-size: 1.45em;
+    font-weight: 900;
+    line-height: 1.2;
+    margin: 4px 0;
+}
+
 #full-speed-ahead-effects-config .fsa-profile-selector {
     border-bottom: 1px solid rgba(80, 80, 72, 0.45);
     margin-bottom: 12px;

@@ -17,6 +17,10 @@ class TradeHubIntegrationAdapter {
         return Boolean(game.modules?.get("tradehub-markets")?.active);
     }
 
+    static usesTradeHubCapital() {
+        return this.isAvailable() && (typeof game.tradehub?.capital === "function" || typeof game.tradehub?.getCapital === "function" || typeof this.data().capital !== "undefined");
+    }
+
     static setting(key, fallback = null) {
         if (!this.isAvailable()) return fallback;
         try {
@@ -31,30 +35,77 @@ class TradeHubIntegrationAdapter {
         return foundry.utils.deepClone(data && typeof data === "object" ? data : {});
     }
 
+    static fallbackCapital() {
+        try {
+            return Number(game.settings.get(FSA_MODULE_ID, "vehicleOpsFallbackCapital") || 0);
+        } catch (_error) {
+            return 0;
+        }
+    }
+
+    static fallbackWasUsed() {
+        try {
+            return Boolean(game.settings.get(FSA_MODULE_ID, "vehicleOpsFallbackCapitalWasUsed"));
+        } catch (_error) {
+            return false;
+        }
+    }
+
+    static async setFallbackCapital(value) {
+        await game.settings.set(FSA_MODULE_ID, "vehicleOpsFallbackCapital", Math.max(0, Number(value || 0)));
+    }
+
     static capitalAvailable() {
-        return this.isAvailable() && (typeof game.tradehub?.capital === "function" || typeof game.tradehub?.getCapital === "function" || typeof this.data().capital !== "undefined");
+        return this.usesTradeHubCapital() || Number.isFinite(this.fallbackCapital());
     }
 
     static capital() {
-        if (this.isAvailable()) {
+        if (this.usesTradeHubCapital()) {
             const publicCapital = typeof game.tradehub?.capital === "function" ? game.tradehub.capital() : typeof game.tradehub?.getCapital === "function" ? game.tradehub.getCapital() : null;
             if (Number.isFinite(Number(publicCapital))) return Number(publicCapital);
+            return Number(this.data().capital || 0);
         }
-        return Number(this.data().capital || 0);
+        return this.fallbackCapital();
+    }
+
+    static capitalSourceLabel() {
+        return this.usesTradeHubCapital() ? "TradeHub Markets" : "Full Speed Ahead";
+    }
+
+    static async reconcileSharedCapital() {
+        if (!game.user?.isGM) return;
+        if (!this.usesTradeHubCapital()) return;
+        const tradeHubCapital = this.capital();
+        const fallbackCapital = this.fallbackCapital();
+        if (tradeHubCapital <= 0 && fallbackCapital > 0 && this.fallbackWasUsed()) {
+            await this.setCapital(fallbackCapital);
+            return;
+        }
+        if (fallbackCapital !== tradeHubCapital) await this.setFallbackCapital(tradeHubCapital);
+        if (this.fallbackWasUsed()) await game.settings.set(FSA_MODULE_ID, "vehicleOpsFallbackCapitalWasUsed", false);
     }
 
     static async setCapital(value) {
         if (!this.capitalAvailable()) throw new Error("TradeHub billing is unavailable.");
         if (!game.user?.isGM) throw new Error("Only the active GM can update TradeHub Capital.");
         const clamped = Math.max(0, Number(value || 0));
-        if (typeof game.tradehub?.setCapital === "function") {
+        if (this.usesTradeHubCapital() && typeof game.tradehub?.setCapital === "function") {
             await game.tradehub.setCapital(clamped);
+            await this.setFallbackCapital(clamped);
+            await game.settings.set(FSA_MODULE_ID, "vehicleOpsFallbackCapitalWasUsed", false);
             this.refreshTradeHub();
             return;
         }
-        const data = this.data();
-        data.capital = clamped;
-        await game.settings.set("tradehub-markets", "data", data);
+        if (this.usesTradeHubCapital()) {
+            const data = this.data();
+            data.capital = clamped;
+            await game.settings.set("tradehub-markets", "data", data);
+            await this.setFallbackCapital(clamped);
+            await game.settings.set(FSA_MODULE_ID, "vehicleOpsFallbackCapitalWasUsed", false);
+        } else {
+            await this.setFallbackCapital(clamped);
+            await game.settings.set(FSA_MODULE_ID, "vehicleOpsFallbackCapitalWasUsed", true);
+        }
         this.refreshTradeHub();
     }
 
@@ -130,34 +181,51 @@ class TradeHubIntegrationAdapter {
 }
 
 class VehicleTargetResolver {
-    static current() {
+    static current({ notify = true, requireModules = false } = {}) {
         if (!game.settings.get(FSA_MODULE_ID, "vehicleOpsEnabled")) {
-            ui.notifications.warn("Full Speed Ahead vehicle operations are disabled.");
+            if (notify) ui.notifications.warn("Full Speed Ahead vehicle operations are disabled.");
             return null;
         }
         const targeted = Array.from(game.user?.targets ?? []).find(token => token?.actor?.type === "vehicle");
         const controlled = canvas?.tokens?.controlled?.find(token => token?.actor?.type === "vehicle");
         const token = targeted || controlled;
         if (!token?.actor || token.actor.type !== "vehicle") {
-            ui.notifications.warn("Target or select a vehicle token first.");
+            if (notify) ui.notifications.warn("Target or select a vehicle token first.");
             return null;
         }
-        const modules = VehicleModuleService.damageableModules(token.actor);
-        if (!modules.length) {
+        const modules = requireModules ? VehicleModuleService.damageableModules(token.actor) : [];
+        if (requireModules && !modules.length) {
             ui.notifications.warn(`${token.actor.name} has no equipped, HP-bearing vehicle modules.`);
             return null;
         }
         return this.packToken(token);
     }
 
-    static packToken(token) {
+    static firstSceneVehicle() {
+        if (!game.settings.get(FSA_MODULE_ID, "vehicleOpsEnabled")) {
+            ui.notifications.warn("Full Speed Ahead vehicle operations are disabled.");
+            return null;
+        }
+        const option = currentSceneVehicleOptions().find(entry => entry.id);
+        const tokenDocument = option?.id ? canvas?.scene?.tokens?.get(option.id) : null;
+        if (!tokenDocument?.actor || tokenDocument.actor.type !== "vehicle") {
+            ui.notifications.warn("No vehicle tokens are available on this scene.");
+            return null;
+        }
+        return this.packToken(tokenDocument);
+    }
+
+    static packToken(tokenOrDocument) {
+        const tokenDocument = tokenOrDocument?.document || tokenOrDocument;
+        const actor = tokenOrDocument?.actor || tokenDocument?.actor;
+        const scene = tokenOrDocument?.scene || tokenDocument?.parent || canvas?.scene;
         return {
-            actorId: token.actor?.id || token.document?.actorId || "",
-            actorUuid: token.actor?.uuid || "",
-            sceneId: token.scene?.id || canvas?.scene?.id || "",
-            tokenId: token.document?.id || "",
-            tokenUuid: token.document?.uuid || "",
-            name: token.name || token.actor?.name || ""
+            actorId: actor?.id || tokenDocument?.actorId || "",
+            actorUuid: actor?.uuid || "",
+            sceneId: scene?.id || canvas?.scene?.id || "",
+            tokenId: tokenDocument?.id || "",
+            tokenUuid: tokenDocument?.uuid || "",
+            name: tokenOrDocument?.name || tokenDocument?.name || actor?.name || ""
         };
     }
 
@@ -1288,7 +1356,7 @@ class VehicleOperationsApplication extends FormApplication {
     }
 
     static open(initialTab = "attack") {
-        const target = VehicleTargetResolver.current();
+        const target = VehicleTargetResolver.current({ notify: false }) || VehicleTargetResolver.firstSceneVehicle();
         if (!target) return null;
         if (this.current) this.current.close();
         this.current = new this(target, { initialTab });
@@ -1475,6 +1543,48 @@ class VehicleOperationsApplication extends FormApplication {
     async _updateObject() {}
 }
 
+class FullSpeedAheadSharedCapitalConfig extends FormApplication {
+    static get defaultOptions() {
+        return foundry.utils.mergeObject(super.defaultOptions, {
+            id: "full-speed-ahead-shared-capital-config",
+            title: "Full Speed Ahead: Shared Capital",
+            template: `modules/${FSA_MODULE_ID}/templates/shared-capital-settings.hbs`,
+            width: 540,
+            closeOnSubmit: true,
+            submitOnChange: false
+        });
+    }
+
+    getData() {
+        const activeTradeHub = TradeHubIntegrationAdapter.usesTradeHubCapital();
+        const capital = TradeHubIntegrationAdapter.capital();
+        return {
+            activeTradeHub,
+            sourceLabel: TradeHubIntegrationAdapter.capitalSourceLabel(),
+            capital,
+            formattedCapital: formatGp(capital),
+            fallbackCapital: formatGp(TradeHubIntegrationAdapter.fallbackCapital()),
+            statusText: activeTradeHub
+                ? "TradeHub Markets is active. Full Speed Ahead reads and writes TradeHub's internal capital, then mirrors that value locally so the shared ledger stays aligned."
+                : "TradeHub Markets is not active. Full Speed Ahead is holding the shared capital locally. If TradeHub is enabled later, this balance can seed TradeHub's internal capital."
+        };
+    }
+
+    async _updateObject(_event, formData) {
+        const mode = String(formData.capitalMode || "add");
+        const amount = Number(formData.capitalAmount || 0);
+        if (!Number.isFinite(amount)) throw new Error("Enter a valid capital amount.");
+        const current = TradeHubIntegrationAdapter.capital();
+        let next = current;
+        if (mode === "replace") next = amount;
+        else if (mode === "subtract") next = current - Math.abs(amount);
+        else next = current + amount;
+        if (next < 0) return ui.notifications.error("Shared capital cannot go below 0.");
+        await TradeHubIntegrationAdapter.setCapital(next);
+        ui.notifications.info(`Shared capital updated to ${formatGp(TradeHubIntegrationAdapter.capital())}.`);
+    }
+}
+
 class VehicleSheetButtonsConfig extends FormApplication {
     static get defaultOptions() {
         return foundry.utils.mergeObject(super.defaultOptions, {
@@ -1566,6 +1676,7 @@ Hooks.once("init", () => {
 Hooks.once("ready", () => {
     VehicleOperationsSocketService.init();
     if (game.user.isGM) migrateGlaxonInsuranceFlags().catch(error => console.warn(`${FSA_MODULE_ID} | Glaxon insurance migration failed.`, error));
+    if (game.user.isGM) TradeHubIntegrationAdapter.reconcileSharedCapital().catch(error => console.warn(`${FSA_MODULE_ID} | Shared capital reconciliation failed.`, error));
     game.fullSpeedAhead = game.fullSpeedAhead || {};
     game.fullSpeedAhead.vehicleOperations = {
         open: tab => VehicleOperationsApplication.open(tab),
@@ -1574,6 +1685,7 @@ Hooks.once("ready", () => {
     };
     game.fullSpeedAhead.openVehicleOperations = tab => VehicleOperationsApplication.open(tab);
     game.fullSpeedAhead.openVehicleSheetButtonsSettings = () => new VehicleSheetButtonsConfig().render(true);
+    game.fullSpeedAhead.openSharedCapitalSettings = () => new FullSpeedAheadSharedCapitalConfig().render(true);
     FullSpeedAheadFloatingMenu.render();
 });
 
@@ -1759,7 +1871,17 @@ function registerVehicleOpsSettings() {
         type: VehicleSheetButtonsConfig,
         restricted: true
     });
+    game.settings.registerMenu(FSA_MODULE_ID, "sharedCapitalConfig", {
+        name: "Shared Capital",
+        label: "Configure Shared Capital",
+        hint: "Configure the shared credit ledger used by Full Speed Ahead and TradeHub Markets.",
+        icon: "fas fa-coins",
+        type: FullSpeedAheadSharedCapitalConfig,
+        restricted: true
+    });
     register("vehicleOperationsData", { name: "Vehicle Operations Data", type: Object, default: foundry.utils.deepClone(FSA_DEFAULT_DATA), config: false });
+    register("vehicleOpsFallbackCapital", { name: "Shared Capital Balance", hint: "Fallback shared capital used when TradeHub Markets is not active. When TradeHub is active, FSA mirrors TradeHub's internal capital here so the ledger remains continuous.", type: Number, default: 0, config: false });
+    register("vehicleOpsFallbackCapitalWasUsed", { name: "Shared Capital Fallback Was Used", hint: "Tracks whether FSA should seed TradeHub capital from the local fallback when TradeHub becomes active.", type: Boolean, default: false, config: false });
     register("vehicleOpsEnabled", { name: "Enable Vehicle Operations", hint: "Enable Full Speed Ahead's Apply Damage, Fuel Scooping, Mining Damage, Scans, Repair Ship, Heat Sink, and cargo failure tools.", type: Boolean, default: true, config: false, onChange: refreshFsaFloatingMenu });
     register("vehicleSheetToolsEnabled", { name: "Show FSA Vehicle Sheet Tools", hint: "Show Long Rest, Registration, Chat Loadout, and Fuel Release controls on owned vehicle sheets.", type: Boolean, default: true, config: false, onChange: rerenderOpenVehicleSheets });
     register("vehicleOpsShowFloatingMenuPlayers", { name: "Show FSA Floating Menu to Players", hint: "Show the draggable FSA floating operations menu to non-GM users.", type: Boolean, default: false, config: false, onChange: refreshFsaFloatingMenu });
