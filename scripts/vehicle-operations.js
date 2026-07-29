@@ -11,6 +11,7 @@ const FSA_DEFAULT_DATA = { pendingCarryover: {} };
 const FSA_REPAIR_ACTIONS = new Set(["repair-module", "stabilize-module", "full-service", "pristine"]);
 const FSA_DAMAGE_CONTEXTS = new Set(["attack", "fuel", "mining"]);
 const fsaVehicleSyncTimers = new Map();
+let fsaSharedCapitalRefreshTimer = null;
 
 class TradeHubIntegrationAdapter {
     static isAvailable() {
@@ -127,6 +128,7 @@ class TradeHubIntegrationAdapter {
             await game.settings.set(FSA_MODULE_ID, "vehicleOpsFallbackCapitalWasUsed", true);
         }
         this.refreshTradeHub();
+        refreshSharedCapitalInterfaces({ broadcast: true });
     }
 
     static async bill(amount) {
@@ -1319,6 +1321,7 @@ class VehicleOperationsSocketService {
 
     static async handle(message) {
         if (message?.type === "vehicleOperationsRefresh") return refreshVehicleOperationInterfaces(null, { broadcast: false });
+        if (message?.type === "sharedCapitalRefresh") return refreshSharedCapitalInterfaces({ broadcast: false });
         if (message?.type === "vehicleOperationsResponse" && message.userId === game.user.id) {
             if (message.ok) ui.notifications.info(message.message || "Full Speed Ahead request complete.");
             else ui.notifications.error(message.message || "Full Speed Ahead request failed.");
@@ -1706,6 +1709,7 @@ Hooks.once("ready", () => {
     game.fullSpeedAhead.openVehicleOperations = tab => VehicleOperationsApplication.open(tab);
     game.fullSpeedAhead.openVehicleSheetButtonsSettings = () => new VehicleSheetButtonsConfig().render(true);
     game.fullSpeedAhead.openSharedCapitalSettings = () => new FullSpeedAheadSharedCapitalConfig().render(true);
+    installTradeHubCapitalRefreshBridge();
     FullSpeedAheadFloatingMenu.render();
 });
 
@@ -1713,6 +1717,12 @@ Hooks.on("canvasReady", () => FullSpeedAheadFloatingMenu.render());
 Hooks.on("renderActorSheet", injectFsaVehicleSheetTools);
 Hooks.on("renderTidy5eActorSheet", injectFsaVehicleSheetTools);
 Hooks.on("renderTidy5eSheet", injectFsaVehicleSheetTools);
+Hooks.on("updateSetting", setting => {
+    const key = setting?.key || setting?.id || setting?.name || "";
+    if (key === "tradehub-markets.data" || key === `${FSA_MODULE_ID}.vehicleOpsFallbackCapital`) {
+        refreshSharedCapitalInterfaces({ broadcast: false });
+    }
+});
 
 Hooks.on("getSceneControlButtons", controls => {
     if (!game.user.isGM && !game.settings.get(FSA_MODULE_ID, "vehicleOpsShowFloatingMenuPlayers")) return;
@@ -1867,6 +1877,31 @@ function refreshVehicleOperationInterfaces(actor = null, { broadcast = true } = 
     VehicleOperationsApplication.current?.render(false);
     TradeHubIntegrationAdapter.refreshTradeHub();
     if (broadcast) game.socket?.emit?.(FSA_SOCKET, { type: "vehicleOperationsRefresh", actorId: actor?.id || "" });
+}
+
+function refreshSharedCapitalInterfaces({ broadcast = true } = {}) {
+    clearTimeout(fsaSharedCapitalRefreshTimer);
+    fsaSharedCapitalRefreshTimer = window.setTimeout(() => {
+        fsaSharedCapitalRefreshTimer = null;
+        for (const app of Object.values(ui.windows ?? {})) {
+            if (!app?.rendered) continue;
+            if (app.id === "full-speed-ahead-vehicle-operations" || app.id === "full-speed-ahead-shared-capital-config") app.render(false);
+        }
+        VehicleOperationsApplication.current?.render(false);
+        if (broadcast && game.user?.isGM) game.socket?.emit?.(FSA_SOCKET, { type: "sharedCapitalRefresh" });
+    }, 75);
+}
+
+function installTradeHubCapitalRefreshBridge() {
+    const tradehub = game.tradehub;
+    if (!tradehub || tradehub.__fullSpeedAheadCapitalRefreshBridge) return;
+    const originalRefresh = typeof tradehub.refresh === "function" ? tradehub.refresh : null;
+    tradehub.refresh = function fullSpeedAheadTradeHubRefreshBridge(...args) {
+        const result = originalRefresh?.apply(this, args);
+        refreshSharedCapitalInterfaces({ broadcast: game.user?.isGM === true });
+        return result;
+    };
+    tradehub.__fullSpeedAheadCapitalRefreshBridge = true;
 }
 
 function refreshFsaFloatingMenu() {
