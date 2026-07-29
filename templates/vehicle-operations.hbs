@@ -151,14 +151,16 @@
                 <h2><i class="fas fa-wrench"></i> Repair</h2>
                 <p><strong>{{targetName}}</strong> · {{shieldStatus}}</p>
             </header>
-            <p class="notes">Make Pristine recalculates HP, AC, module value, jump data, and restores all module condition. Full Service Repair can bill TradeHub Capital. Ability Check Repair applies the entered repair HP without billing.</p>
+            <p class="notes">Make Pristine is GM-only maintenance: it fully restores the ship, recalculates HP, AC, module value, and jump data, and never bills TradeHub Capital. Full Service Repair can bill TradeHub Capital. Ability Check Repair applies the entered repair HP without billing.</p>
 
             <div class="form-group">
                 <label>Repair Action</label>
                 <select name="repairAction">
                     <option value="heal" selected>Ability Check Repair</option>
                     <option value="full-service">Full Service Repair and Replace</option>
+                    {{#if isGM}}
                     <option value="pristine">Make Pristine</option>
+                    {{/if}}
                 </select>
             </div>
 
@@ -172,7 +174,7 @@
                 <input type="checkbox" name="billCapital" checked>
             </div>
 
-            <div class="form-group">
+            <div class="form-group" data-repair-target-row>
                 <label>Repair Module</label>
                 <select name="repairTargetModule">
                     {{#each repairModules}}
@@ -181,7 +183,7 @@
                 </select>
             </div>
 
-            <p class="notes">
+            <p class="notes" data-repair-estimate>
                 <strong>Full Service Estimate:</strong> {{repairEstimate}}<br>
                 {{#if insured}}
                 <strong>Glaxon Full Value:</strong> {{repairRawEstimate}}<br>
@@ -190,6 +192,12 @@
                 <strong>TradeHub Capital:</strong> {{tradeHubCapital}}<br>
                 <strong>TradeHub Capital After:</strong> {{repairAfter}}
             </p>
+
+            {{#if isGM}}
+            <p class="notes" data-pristine-note style="display:none;">
+                <strong>Make Pristine:</strong> restores all module HP, vehicle HP, shields, AC, module value, and jump data. No TradeHub billing is applied.
+            </p>
+            {{/if}}
 
             <button type="button" data-action="repair"><i class="fas fa-wrench"></i> Repair Ship</button>
         </section>

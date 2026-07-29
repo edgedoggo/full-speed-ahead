@@ -603,7 +603,8 @@ class VehicleRepairService {
         if (!actor || actor.type !== "vehicle") throw new Error("Selected vehicle not found.");
         const action = FSA_REPAIR_ACTIONS.has(payload.action) ? payload.action : "heal";
         if (action === "pristine") {
-            await VehicleModuleService.syncVehicleStatsFromModules(actor, { restore: true, chat: true, reason: "Manual GM repair tab refresh", userId });
+            if (!game.users.get(userId)?.isGM) throw new Error("Make Pristine is a GM-only vehicle maintenance action.");
+            await VehicleModuleService.syncVehicleStatsFromModules(actor, { restore: true, chat: true, reason: "GM maintenance action. No billing applied.", userId });
         } else if (action === "full-service") {
             await this.fullService(actor, { billCapital: payload.billCapital !== false, userId });
         } else {
@@ -881,6 +882,7 @@ class VehicleOperationsApplication extends FormApplication {
             repairAfter: TradeHubIntegrationAdapter.capitalAvailable() ? formatGp(TradeHubIntegrationAdapter.capital() - repairPreview.total) : "Unavailable",
             insured: repairPreview.insured,
             savings: formatGp(repairPreview.rawTotal - repairPreview.total),
+            isGM: game.user.isGM,
             ...options
         };
     }
@@ -940,9 +942,14 @@ class VehicleOperationsApplication extends FormApplication {
     }
 
     updateRepairMode(html) {
-        const full = html.find('[name="repairAction"]').val() === "full-service";
-        html.find("[data-repair-hp-row]").toggle(!full);
+        const action = html.find('[name="repairAction"]').val();
+        const full = action === "full-service";
+        const pristine = action === "pristine";
+        html.find("[data-repair-hp-row]").toggle(!full && !pristine);
         html.find("[data-repair-bill-row]").toggle(full);
+        html.find("[data-repair-target-row]").toggle(!pristine);
+        html.find("[data-repair-estimate]").toggle(!pristine);
+        html.find("[data-pristine-note]").toggle(pristine);
     }
 
     updateScanMode(html) {
