@@ -2,7 +2,18 @@
     <div class="form-group">
         <label>Send Crew to Combat Initiative, not Vehicle</label>
         <input type="checkbox" name="vehicleCombatCrewMode" {{checked vehicleCombatCrewMode}}>
-        <p class="notes">When selected, the crew members will be generated or matched and placed in the initiative, but not the ship.</p>
+        <p class="notes">When selected, adding a vehicle to combat initiative will search its Cargo/Crew and attempt to add them to combat initiative. If it does not find a match, choose whether to generate a placeholder or only use matched sidebar actors.</p>
+    </div>
+
+    <div class="form-group">
+        <label>Crew Initiative Matching</label>
+        <div class="form-fields">
+            <select name="vehicleCrewMatchMode">
+                {{#each crewMatchModes}}
+                <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+                {{/each}}
+            </select>
+        </div>
     </div>
 
     <hr>

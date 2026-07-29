@@ -11,6 +11,10 @@ const VEHICLE_COMBAT_DISPLAY_MODES = {
     FULL: "full",
     SIMPLE: "simple"
 };
+const VEHICLE_CREW_MATCH_MODES = {
+    PLACEHOLDERS: "placeholders",
+    MATCH_ONLY: "match-only"
+};
 const VEHICLE_PROTECTION_VISUAL_MODES = {
     BUILT_IN: "built-in",
     TOKEN_MAGIC: "token-magic",
@@ -29,6 +33,23 @@ const VEHICLE_CREW_PATHS = [
     "system.details.crew",
     "system.traits.crew"
 ];
+const CREW_ABILITY_KEYS = {
+    str: "str",
+    strength: "str",
+    dex: "dex",
+    dexterity: "dex",
+    con: "con",
+    constitution: "con",
+    int: "int",
+    intelligence: "int",
+    wis: "wis",
+    wisdom: "wis",
+    cha: "cha",
+    charisma: "cha",
+    tec: "tec",
+    tech: "tec",
+    technology: "tec"
+};
 const processingCombatants = new Set();
 const activeProtectionEffects = new Map();
 let protectionTicker = null;
@@ -47,6 +68,7 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
     getData() {
         return {
             vehicleCombatCrewMode: game.settings.get(MODULE_ID, "vehicleCombatCrewMode"),
+            vehicleCrewMatchMode: game.settings.get(MODULE_ID, "vehicleCrewMatchMode"),
             vehicleCombatDisplayMode: game.settings.get(MODULE_ID, "vehicleCombatDisplayMode"),
             vehicleCombatShipIcon: game.settings.get(MODULE_ID, "vehicleCombatShipIcon"),
             vehicleShieldAutomation: game.settings.get(MODULE_ID, "vehicleShieldAutomation"),
@@ -54,7 +76,7 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
             vehicleCombatDebug: game.settings.get(MODULE_ID, "vehicleCombatDebug"),
             vehicleOpsEnabled: safeGetModuleSetting("vehicleOpsEnabled", true),
             vehicleOpsPlayersCanOpen: safeGetModuleSetting("vehicleOpsPlayersCanOpen", true),
-            vehicleOpsShowFloatingMenuPlayers: safeGetModuleSetting("vehicleOpsShowFloatingMenuPlayers", true),
+            vehicleOpsShowFloatingMenuPlayers: safeGetModuleSetting("vehicleOpsShowFloatingMenuPlayers", false),
             vehicleOpsScansEnabled: safeGetModuleSetting("vehicleOpsScansEnabled", true),
             vehicleOpsRepairCostPerHp: safeGetModuleSetting("vehicleOpsRepairCostPerHp", 100),
             vehicleOpsRepairCostPerShieldPoint: safeGetModuleSetting("vehicleOpsRepairCostPerShieldPoint", 100),
@@ -70,6 +92,18 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
                     value: VEHICLE_COMBAT_DISPLAY_MODES.SIMPLE,
                     label: "Simple Combat Order",
                     selected: game.settings.get(MODULE_ID, "vehicleCombatDisplayMode") === VEHICLE_COMBAT_DISPLAY_MODES.SIMPLE
+                }
+            ],
+            crewMatchModes: [
+                {
+                    value: VEHICLE_CREW_MATCH_MODES.PLACEHOLDERS,
+                    label: "Match sidebar actors, generate placeholder actors for non-matches (default)",
+                    selected: game.settings.get(MODULE_ID, "vehicleCrewMatchMode") === VEHICLE_CREW_MATCH_MODES.PLACEHOLDERS
+                },
+                {
+                    value: VEHICLE_CREW_MATCH_MODES.MATCH_ONLY,
+                    label: "Match sidebar actors only",
+                    selected: game.settings.get(MODULE_ID, "vehicleCrewMatchMode") === VEHICLE_CREW_MATCH_MODES.MATCH_ONLY
                 }
             ],
             protectionVisualModes: [
@@ -108,6 +142,7 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
 
     async _updateObject(event, formData) {
         await game.settings.set(MODULE_ID, "vehicleCombatCrewMode", Boolean(formData.vehicleCombatCrewMode));
+        await game.settings.set(MODULE_ID, "vehicleCrewMatchMode", getValidCrewMatchMode(formData.vehicleCrewMatchMode));
         await game.settings.set(MODULE_ID, "vehicleCombatDisplayMode", String(formData.vehicleCombatDisplayMode || VEHICLE_COMBAT_DISPLAY_MODES.FULL));
         await game.settings.set(MODULE_ID, "vehicleCombatShipIcon", String(formData.vehicleCombatShipIcon || DEFAULT_SHIP_BADGE).trim());
         await game.settings.set(MODULE_ID, "vehicleShieldAutomation", Boolean(formData.vehicleShieldAutomation));
@@ -139,7 +174,7 @@ Hooks.once("init", () => {
 
     registerVehicleCombatSetting("vehicleCombatCrewMode", {
         name: "Send Crew to Combat Initiative, not Vehicle",
-        hint: "When selected, the crew members will be generated or matched and placed in the initiative, but not the ship.",
+        hint: "When selected, adding a vehicle to combat initiative searches its Cargo/Crew and attempts to add them to combat initiative instead of the ship.",
         type: Boolean,
         default: false,
         config: false,
@@ -147,6 +182,18 @@ Hooks.once("init", () => {
             ui.combat?.render(true);
             if (enabled) syncActiveVehicleCombat();
         }
+    });
+
+    registerVehicleCombatSetting("vehicleCrewMatchMode", {
+        name: "Crew Initiative Matching",
+        hint: "Choose whether unmatched Cargo/Crew names create placeholder combatants or are skipped.",
+        type: String,
+        choices: {
+            [VEHICLE_CREW_MATCH_MODES.PLACEHOLDERS]: "Match sidebar actors, generate placeholder actors for non-matches (default)",
+            [VEHICLE_CREW_MATCH_MODES.MATCH_ONLY]: "Match sidebar actors only"
+        },
+        default: VEHICLE_CREW_MATCH_MODES.PLACEHOLDERS,
+        config: false
     });
 
     registerVehicleCombatSetting("vehicleCombatDisplayMode", {
@@ -678,6 +725,15 @@ function getValidProtectionVisualMode(value) {
     return Object.values(VEHICLE_PROTECTION_VISUAL_MODES).includes(mode) ? mode : VEHICLE_PROTECTION_VISUAL_MODES.BUILT_IN;
 }
 
+function getCrewMatchMode() {
+    return getValidCrewMatchMode(game.settings.get(MODULE_ID, "vehicleCrewMatchMode"));
+}
+
+function getValidCrewMatchMode(value) {
+    const mode = String(value ?? VEHICLE_CREW_MATCH_MODES.PLACEHOLDERS);
+    return Object.values(VEHICLE_CREW_MATCH_MODES).includes(mode) ? mode : VEHICLE_CREW_MATCH_MODES.PLACEHOLDERS;
+}
+
 function isTokenMagicAvailable() {
     return Boolean(
         globalThis.TokenMagic?.addUpdateFilters &&
@@ -708,12 +764,21 @@ async function replaceVehicleCombatantWithCrew(combatant) {
     try {
         const roster = [];
         const warnings = [];
+        const skipped = [];
+        const createPlaceholders = getCrewMatchMode() === VEHICLE_CREW_MATCH_MODES.PLACEHOLDERS;
         for (const row of rows) {
             const result = matchCrewActor(row, game.actors);
-            roster.push({ row, actor: result.actor });
+            if (result.actor || createPlaceholders) roster.push({ row, actor: result.actor });
             if (!result.actor) {
-                warnings.push(`${row.name} (${result.ambiguous ? "multiple Actors have this name" : "Actor not found"})`);
+                const note = `${row.name} (${result.ambiguous ? "multiple Actors have this name" : "Actor not found"})`;
+                if (createPlaceholders) warnings.push(note);
+                else skipped.push(note);
             }
+        }
+
+        if (!roster.length) {
+            ui.notifications.warn(`Full Speed Ahead found no matching sidebar actors for the crew of ${vehicle.name}. The vehicle was left in initiative.`);
+            return;
         }
 
         const token = combatant.token;
@@ -735,15 +800,62 @@ async function replaceVehicleCombatantWithCrew(combatant) {
         }));
 
         await grantCrewVehicleOwnership(combatant.combat, vehicle, roster.filter(({ actor }) => actor));
+        await syncVehicleAbilityScoresFromCrew(vehicle, roster);
         const created = await combatant.combat.createEmbeddedDocuments("Combatant", createData, { fullSpeedAheadCrew: true });
         await combatant.delete({ fullSpeedAheadReplacedVehicle: true });
         if (warnings.length) {
             ui.notifications.info(`Full Speed Ahead created silhouette combatants for unmatched crew of ${vehicle.name}: ${warnings.join(", ")}.`);
         }
+        if (skipped.length) {
+            ui.notifications.info(`Full Speed Ahead skipped unmatched crew for ${vehicle.name}: ${skipped.join(", ")}.`);
+        }
         debugVehicleCombat("Replaced vehicle combatant", vehicle.name, { createData, created });
     } finally {
         processingCombatants.delete(combatant.uuid);
     }
+}
+
+async function syncVehicleAbilityScoresFromCrew(vehicle, roster) {
+    if (!vehicle || vehicle.type !== "vehicle") return;
+    const updates = {};
+    const best = new Map();
+
+    for (const { row, actor } of roster) {
+        if (!actor) continue;
+        const abilityKey = normalizeCrewAbilityKey(row.ability);
+        if (!abilityKey) continue;
+        const actorScore = getActorAbilityScore(actor, abilityKey);
+        if (actorScore === null) continue;
+
+        const existing = best.get(abilityKey);
+        if (existing && existing.score >= actorScore) continue;
+        best.set(abilityKey, { score: actorScore, actor, row });
+    }
+
+    const synced = [];
+    for (const [abilityKey, entry] of best) {
+        updates[`system.abilities.${abilityKey}.value`] = entry.score;
+        synced.push(`${abilityKey.toUpperCase()} ${entry.score} from ${entry.actor.name} (${entry.row.role})`);
+    }
+    if (!Object.keys(updates).length) return;
+    await vehicle.update(updates, { fullSpeedAheadCrewAbilitySync: true });
+    debugVehicleCombat(`Synced ${vehicle.name} crew ability scores`, synced);
+}
+
+function normalizeCrewAbilityKey(value) {
+    return CREW_ABILITY_KEYS[String(value ?? "").trim().toLocaleLowerCase()] ?? null;
+}
+
+function getActorAbilityScore(actor, abilityKey) {
+    const paths = [
+        `system.abilities.${abilityKey}.value`,
+        `data.data.abilities.${abilityKey}.value`
+    ];
+    for (const path of paths) {
+        const score = Number(foundry.utils.getProperty(actor, path));
+        if (Number.isFinite(score)) return score;
+    }
+    return null;
 }
 
 function getCrewCombatantFlag(vehicle, token, row) {
@@ -817,17 +929,28 @@ function renderVehicleCrewTracker(app, html) {
         const portrait = row.find(".token-image").first();
         if (portrait.length && !portrait.parent().hasClass("full-speed-ahead-crew-portrait")) {
             portrait.wrap('<div class="full-speed-ahead-crew-portrait"></div>');
-            const wrapper = portrait.parent();
-            wrapper.append(`<img class="full-speed-ahead-ship-badge" src="${escapeHtml(badgeIcon)}" alt="">`);
-            if (mode === VEHICLE_COMBAT_DISPLAY_MODES.FULL) {
-                wrapper.prepend(`<img class="full-speed-ahead-vessel-image" src="${escapeHtml(data.vehicleImg)}" alt="${escapeHtml(data.vehicleName)}">`);
-            }
         }
+        const portraitWrapper = row.find(".full-speed-ahead-crew-portrait").first();
+        portraitWrapper.find(".full-speed-ahead-vessel-image").remove();
+        if (portraitWrapper.length && !portraitWrapper.find(".full-speed-ahead-ship-badge").length) {
+            portraitWrapper.append(`<img class="full-speed-ahead-ship-badge" src="${escapeHtml(badgeIcon)}" alt="">`);
+        }
+
+        let roleBlock = row.find(".full-speed-ahead-vehicle-role").first();
+        if (!roleBlock.length && portraitWrapper.length) {
+            roleBlock = $(`<div class="full-speed-ahead-vehicle-role">
+                <img class="full-speed-ahead-vessel-image" src="${escapeHtml(data.vehicleImg)}" alt="${escapeHtml(data.vehicleName)}">
+                <span></span>
+            </div>`);
+            portraitWrapper.before(roleBlock);
+        }
+        roleBlock.find("span").text(data.role || "Crew");
+        roleBlock.find("img").attr({ src: data.vehicleImg, alt: data.vehicleName });
 
         if (mode === VEHICLE_COMBAT_DISPLAY_MODES.FULL) {
             const name = row.find(".token-name h4, .token-name").first();
-            const existing = name.text().trim();
-            if (existing && !existing.startsWith(`${data.vehicleName} / `)) {
+            const existing = name.text().trim().replace(new RegExp(`^${escapeRegExp(data.vehicleName)}\\s*/\\s*`), "");
+            if (existing) {
                 name.text(`${data.vehicleName} / ${existing}`);
             }
         }
@@ -914,6 +1037,10 @@ function debugVehicleCombat(...args) {
     if (game.settings.get(MODULE_ID, "vehicleCombatDebug")) {
         console.debug(`${MODULE_ID} vehicle combat |`, ...args);
     }
+}
+
+function escapeRegExp(value) {
+    return String(value ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function escapeHtml(value) {
