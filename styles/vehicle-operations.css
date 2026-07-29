@@ -1,30 +1,134 @@
+.fsa-floating-menu {
+    position: fixed;
+    z-index: 100;
+    display: inline-flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 228px;
+    padding: 7px;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 6px;
+    background: rgba(18, 20, 24, 0.88);
+    box-shadow: 0 5px 18px rgba(0, 0, 0, 0.45);
+    color: #f2f2f2;
+    cursor: move;
+    user-select: none;
+}
+
+.fsa-floating-menu.dragging {
+    opacity: 0.86;
+}
+
+.fsa-floating-menu-title {
+    display: block;
+    padding: 0 2px 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+    font-size: 14px;
+    letter-spacing: 0;
+    line-height: 1;
+}
+
+.fsa-floating-menu-actions {
+    display: grid;
+    grid-template-columns: repeat(6, 32px);
+    gap: 5px;
+}
+
+.fsa-floating-menu button {
+    width: 32px;
+    height: 30px;
+    margin: 0;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    color: #f7f7f7;
+    cursor: pointer;
+    line-height: 28px;
+    text-align: center;
+}
+
+.fsa-floating-menu button:hover,
+.fsa-floating-menu button:focus {
+    background: rgba(46, 116, 224, 0.82);
+    color: #fff;
+    outline: none;
+}
+
+.fsa-floating-menu button i {
+    pointer-events: none;
+}
+
 .fsa-vehicle-ops {
-    min-width: 500px;
+    min-width: 360px;
+    padding-bottom: 4px;
 }
 
 .fsa-vehicle-ops-tabs {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 4px;
-    margin-bottom: 10px;
+    grid-template-columns: repeat(5, 44px) 1fr 44px;
+    gap: 6px;
+    align-items: center;
+    margin-top: 12px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(80, 80, 72, 0.55);
 }
 
-.fsa-vehicle-ops-tabs .item {
-    padding: 6px 4px;
+.fsa-vehicle-ops-tabs .item,
+.fsa-vehicle-ops-tabs button {
+    width: 44px;
+    height: 38px;
+    padding: 0;
     border: 1px solid rgba(90, 90, 82, 0.65);
     background: rgba(40, 40, 36, 0.16);
     text-align: center;
     font-weight: 700;
+    line-height: 36px;
+    border-radius: 5px;
+    color: inherit;
+    cursor: pointer;
 }
 
-.fsa-vehicle-ops-tabs .item.active {
+.fsa-vehicle-ops-tabs button {
+    grid-column: 7;
+    font-family: inherit;
+    margin: 0;
+}
+
+.fsa-vehicle-ops-tabs .item.active,
+.fsa-vehicle-ops-tabs .item:hover,
+.fsa-vehicle-ops-tabs button:hover {
     background: rgba(30, 105, 220, 0.78);
     color: #fff;
+}
+
+.fsa-vehicle-ops-tabs i {
+    pointer-events: none;
 }
 
 .fsa-vehicle-ops-summary,
 .fsa-vehicle-ops .notes {
     margin: 8px 0;
+}
+
+.fsa-vehicle-ops-pane-header {
+    border-bottom: 1px solid rgba(80, 80, 72, 0.45);
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+}
+
+.fsa-vehicle-ops-pane-header h2 {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    font-size: 1.2em;
+    line-height: 1.2;
+    margin: 0;
+}
+
+.fsa-vehicle-ops-pane-header p {
+    color: #555;
+    margin: 4px 0 0;
 }
 
 .fsa-vehicle-ops .tab {
@@ -38,7 +142,7 @@
 .fsa-vehicle-ops .form-group {
     align-items: center;
     display: grid;
-    grid-template-columns: 160px minmax(0, 1fr);
+    grid-template-columns: 145px minmax(0, 1fr);
     gap: 8px;
     margin: 7px 0;
 }
@@ -55,7 +159,7 @@
 
 .fsa-fuel-grant {
     display: grid;
-    grid-template-columns: 160px minmax(0, 1fr);
+    grid-template-columns: 145px minmax(0, 1fr);
     gap: 8px;
     align-items: center;
     margin: 10px 0;

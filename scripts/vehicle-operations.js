@@ -821,9 +821,9 @@ class VehicleOperationsApplication extends FormApplication {
     static get defaultOptions() {
         return foundry.utils.mergeObject(super.defaultOptions, {
             id: "full-speed-ahead-vehicle-operations",
-            title: "Full Speed Ahead: Vehicle Operations",
+            title: "FSA",
             template: `modules/${FSA_MODULE_ID}/templates/vehicle-operations.hbs`,
-            width: 560,
+            width: 460,
             height: "auto",
             closeOnSubmit: false,
             submitOnChange: false,
@@ -831,13 +831,19 @@ class VehicleOperationsApplication extends FormApplication {
         });
     }
 
-    static open() {
+    static open(initialTab = "attack") {
         const target = VehicleTargetResolver.current();
         if (!target) return null;
         if (this.current) this.current.close();
-        this.current = new this(target);
+        this.current = new this(target, { initialTab });
         this.current.render(true);
         return this.current;
+    }
+
+    static openSettings() {
+        const settings = game.settings?.sheet || (globalThis.SettingsConfig ? new globalThis.SettingsConfig() : null);
+        if (settings?.render) settings.render(true);
+        else ui.notifications.info("Open Configure Settings to edit Full Speed Ahead settings.");
     }
 
     get target() {
@@ -894,6 +900,7 @@ class VehicleOperationsApplication extends FormApplication {
 
     activateListeners(html) {
         super.activateListeners(html);
+        this.activateOperationTab(html, this.options.initialTab || "attack");
         html.find("[data-action]").on("click", event => {
             event.preventDefault();
             const action = event.currentTarget.dataset.action;
@@ -903,6 +910,7 @@ class VehicleOperationsApplication extends FormApplication {
             if (action === "scan") return this.submitScan(html);
             if (action === "repair") return this.submitRepair(html);
             if (action === "grant-fuel") return this.submitFuel(html);
+            if (action === "open-settings") return VehicleOperationsApplication.openSettings();
         });
         html.find('[name="repairAction"]').on("change", () => this.updateRepairMode(html));
         html.find('[name="scanType"]').on("change", () => this.updateScanMode(html));
@@ -941,12 +949,84 @@ class VehicleOperationsApplication extends FormApplication {
         html.find("[data-scan-destination]").toggle(html.find('[name="scanType"]').val() === "wake");
     }
 
+    activateOperationTab(html, tab) {
+        if (this._tabs?.[0]?.activate) {
+            this._tabs[0].activate(tab);
+            return;
+        }
+        html.find(".fsa-vehicle-ops-tabs .item").removeClass("active");
+        html.find(`.fsa-vehicle-ops-tabs .item[data-tab="${tab}"]`).addClass("active");
+        html.find(".fsa-vehicle-ops-body .tab").removeClass("active");
+        html.find(`.fsa-vehicle-ops-body .tab[data-tab="${tab}"]`).addClass("active");
+    }
+
     async close(options) {
         if (VehicleOperationsApplication.current === this) VehicleOperationsApplication.current = null;
         return super.close(options);
     }
 
     async _updateObject() {}
+}
+
+class FullSpeedAheadFloatingMenu {
+    static id = "full-speed-ahead-floating-menu";
+
+    static render() {
+        if (document.getElementById(this.id)) return;
+        if (!game.settings.get(FSA_MODULE_ID, "vehicleOpsEnabled")) return;
+        if (!game.user.isGM && !game.settings.get(FSA_MODULE_ID, "vehicleOpsPlayersCanOpen")) return;
+
+        const pos = game.settings.get(FSA_MODULE_ID, "vehicleOpsFloatingMenuPosition") || { left: 14, top: 125 };
+        const menu = document.createElement("div");
+        menu.id = this.id;
+        menu.className = "fsa-floating-menu";
+        menu.style.left = `${Number(pos.left || 14)}px`;
+        menu.style.top = `${Number(pos.top || 125)}px`;
+        menu.innerHTML = `
+            <strong class="fsa-floating-menu-title">FSA</strong>
+            <div class="fsa-floating-menu-actions">
+                <button type="button" data-tab="attack" title="Attack Damage" aria-label="Attack Damage"><i class="fas fa-bomb"></i></button>
+                <button type="button" data-tab="scans" title="Scan" aria-label="Scan"><i class="fas fa-satellite-dish"></i></button>
+                <button type="button" data-tab="repair" title="Repair" aria-label="Repair"><i class="fas fa-wrench"></i></button>
+                <button type="button" data-tab="fuel" title="Fuel Scooping" aria-label="Fuel Scooping"><i class="fas fa-gas-pump"></i></button>
+                <button type="button" data-tab="mining" title="Mining" aria-label="Mining"><i class="fas fa-gem"></i></button>
+                <button type="button" data-action="settings" title="Full Speed Ahead Settings" aria-label="Full Speed Ahead Settings"><i class="fas fa-cog"></i></button>
+            </div>`;
+        document.body.appendChild(menu);
+
+        menu.querySelectorAll("[data-tab]").forEach(button => {
+            button.addEventListener("click", event => {
+                event.preventDefault();
+                VehicleOperationsApplication.open(event.currentTarget.dataset.tab || "attack");
+            });
+        });
+        menu.querySelector('[data-action="settings"]')?.addEventListener("click", event => {
+            event.preventDefault();
+            VehicleOperationsApplication.openSettings();
+        });
+
+        let dragging = null;
+        menu.addEventListener("mousedown", event => {
+            if (event.target.closest("button")) return;
+            dragging = { x: event.clientX - menu.offsetLeft, y: event.clientY - menu.offsetTop };
+            menu.classList.add("dragging");
+        });
+        window.addEventListener("mousemove", event => {
+            if (!dragging) return;
+            menu.style.left = `${Math.max(0, event.clientX - dragging.x)}px`;
+            menu.style.top = `${Math.max(0, event.clientY - dragging.y)}px`;
+        });
+        window.addEventListener("mouseup", async () => {
+            if (!dragging) return;
+            dragging = null;
+            menu.classList.remove("dragging");
+            await game.settings.set(FSA_MODULE_ID, "vehicleOpsFloatingMenuPosition", { left: menu.offsetLeft, top: menu.offsetTop });
+        });
+    }
+
+    static close() {
+        document.getElementById(this.id)?.remove();
+    }
 }
 
 Hooks.once("init", () => {
@@ -956,9 +1036,16 @@ Hooks.once("init", () => {
 Hooks.once("ready", () => {
     VehicleOperationsSocketService.init();
     game.fullSpeedAhead = game.fullSpeedAhead || {};
-    game.fullSpeedAhead.vehicleOperations = { open: () => VehicleOperationsApplication.open() };
-    game.fullSpeedAhead.openVehicleOperations = () => VehicleOperationsApplication.open();
+    game.fullSpeedAhead.vehicleOperations = {
+        open: tab => VehicleOperationsApplication.open(tab),
+        renderFloatingMenu: () => FullSpeedAheadFloatingMenu.render(),
+        closeFloatingMenu: () => FullSpeedAheadFloatingMenu.close()
+    };
+    game.fullSpeedAhead.openVehicleOperations = tab => VehicleOperationsApplication.open(tab);
+    FullSpeedAheadFloatingMenu.render();
 });
+
+Hooks.on("canvasReady", () => FullSpeedAheadFloatingMenu.render());
 
 Hooks.on("getSceneControlButtons", controls => {
     if (!game.user.isGM && !game.settings.get(FSA_MODULE_ID, "vehicleOpsPlayersCanOpen")) return;
@@ -970,7 +1057,7 @@ Hooks.on("getSceneControlButtons", controls => {
         title: "Full Speed Ahead Vehicle Operations",
         icon: "fas fa-bomb",
         button: true,
-        onClick: () => VehicleOperationsApplication.open()
+        onClick: () => VehicleOperationsApplication.open("attack")
     });
 });
 
@@ -1005,6 +1092,7 @@ function registerVehicleOpsSettings() {
     register("vehicleOperationsData", { name: "Vehicle Operations Data", type: Object, default: foundry.utils.deepClone(FSA_DEFAULT_DATA), config: false });
     register("vehicleOpsEnabled", { name: "Enable Vehicle Operations", hint: "Enable Full Speed Ahead's Apply Damage, Fuel Scooping, Mining Damage, Scans, Repair Ship, Heat Sink, and cargo failure tools.", type: Boolean, default: true });
     register("vehicleOpsPlayersCanOpen", { name: "Players Can Open Vehicle Operations", hint: "Allow non-GM users to open the vehicle operations window. Mutations still execute through the GM.", type: Boolean, default: true });
+    register("vehicleOpsFloatingMenuPosition", { name: "Vehicle Operations Floating Menu Position", type: Object, default: { left: 14, top: 125 }, config: false });
     register("vehicleOpsScansEnabled", { name: "Enable Vehicle Operation Scans", hint: "Allow Tactical, Manifest, and Wake scans from the vehicle operations window.", type: Boolean, default: true });
     register("vehicleOpsRepairCostPerHp", { name: "Fallback Repair Cost Per Module HP", hint: "Used when TradeHub is unavailable or does not expose a repair HP cost.", type: Number, default: 100 });
     register("vehicleOpsRepairCostPerShieldPoint", { name: "Fallback Repair Cost Per Shield HP", hint: "Used when TradeHub is unavailable or does not expose a shield repair HP cost.", type: Number, default: 100 });

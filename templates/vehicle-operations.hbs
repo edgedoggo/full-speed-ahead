@@ -1,20 +1,10 @@
 <form class="fsa-vehicle-ops" autocomplete="off">
-    <nav class="tabs fsa-vehicle-ops-tabs" data-group="primary">
-        <a class="item active" data-tab="attack">Attack Damage</a>
-        <a class="item" data-tab="fuel">Fuel Scooping</a>
-        <a class="item" data-tab="mining">Mining Damage</a>
-        <a class="item" data-tab="scans">Scans</a>
-        <a class="item" data-tab="repair">Repair Ship</a>
-    </nav>
-
-    <p class="fsa-vehicle-ops-summary">
-        <strong>Target:</strong> {{targetName}}<br>
-        <strong>Status:</strong> {{shieldStatus}}<br>
-        {{shieldText}}
-    </p>
-
     <div class="fsa-vehicle-ops-body">
         <section class="tab active" data-tab="attack" data-group="primary">
+            <header class="fsa-vehicle-ops-pane-header">
+                <h2><i class="fas fa-bomb"></i> Attack Damage</h2>
+                <p><strong>{{targetName}}</strong> · {{shieldStatus}}</p>
+            </header>
             <p class="notes">Only modules which are lower than the AC of the attack will be hit in the attack.</p>
 
             <div class="form-group">
@@ -48,6 +38,10 @@
         </section>
 
         <section class="tab" data-tab="fuel" data-group="primary">
+            <header class="fsa-vehicle-ops-pane-header">
+                <h2><i class="fas fa-gas-pump"></i> Fuel Scooping</h2>
+                <p><strong>{{targetName}}</strong> · {{shieldStatus}}</p>
+            </header>
             <p class="notes">Fuel scooping uses a fixed attack total of 25. Damage stays editable and defaults from the last damage roll.</p>
 
             <div class="form-group">
@@ -86,6 +80,10 @@
         </section>
 
         <section class="tab" data-tab="mining" data-group="primary">
+            <header class="fsa-vehicle-ops-pane-header">
+                <h2><i class="fas fa-gem"></i> Mining Damage</h2>
+                <p><strong>{{targetName}}</strong> · {{shieldStatus}}</p>
+            </header>
             <p class="notes">Refinery takes this damage first when installed.<br>Only modules which are lower than the AC of the attack will be hit in the attack.</p>
 
             <div class="form-group">
@@ -119,6 +117,10 @@
         </section>
 
         <section class="tab" data-tab="scans" data-group="primary">
+            <header class="fsa-vehicle-ops-pane-header">
+                <h2><i class="fas fa-satellite-dish"></i> Scan</h2>
+                <p><strong>{{targetName}}</strong> · {{shieldStatus}}</p>
+            </header>
             <p class="notes">Scan the selected craft's combat profile, registered manifest, or detected jump wake.</p>
 
             <div class="form-group">
@@ -145,6 +147,10 @@
         </section>
 
         <section class="tab" data-tab="repair" data-group="primary">
+            <header class="fsa-vehicle-ops-pane-header">
+                <h2><i class="fas fa-wrench"></i> Repair</h2>
+                <p><strong>{{targetName}}</strong> · {{shieldStatus}}</p>
+            </header>
             <p class="notes">Make Pristine recalculates HP, AC, module value, jump data, and restores all module condition. Full Service Repair can bill TradeHub Capital. Ability Check Repair applies the entered repair HP without billing.</p>
 
             <div class="form-group">
@@ -188,4 +194,13 @@
             <button type="button" data-action="repair"><i class="fas fa-wrench"></i> Repair Ship</button>
         </section>
     </div>
+
+    <nav class="tabs fsa-vehicle-ops-tabs" data-group="primary" aria-label="Full Speed Ahead vehicle operations">
+        <a class="item active" data-tab="attack" title="Attack Damage" aria-label="Attack Damage"><i class="fas fa-bomb"></i></a>
+        <a class="item" data-tab="scans" title="Scan" aria-label="Scan"><i class="fas fa-satellite-dish"></i></a>
+        <a class="item" data-tab="repair" title="Repair" aria-label="Repair"><i class="fas fa-wrench"></i></a>
+        <a class="item" data-tab="fuel" title="Fuel Scooping" aria-label="Fuel Scooping"><i class="fas fa-gas-pump"></i></a>
+        <a class="item" data-tab="mining" title="Mining" aria-label="Mining"><i class="fas fa-gem"></i></a>
+        <button type="button" data-action="open-settings" title="Full Speed Ahead Settings" aria-label="Full Speed Ahead Settings"><i class="fas fa-cog"></i></button>
+    </nav>
 </form>
