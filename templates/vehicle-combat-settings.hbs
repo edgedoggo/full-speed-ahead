@@ -34,7 +34,19 @@
     <div class="form-group">
         <label>Automatically Manage Vehicle Shields</label>
         <input type="checkbox" name="vehicleShieldAutomation" {{checked vehicleShieldAutomation}}>
-        <p class="notes">Use Shield Generator equipment HP to turn vehicle shield visuals on or off. Supports Shield Generator [A], [B], [C], [D], and [Prismatic]. Requires TokenMagic FX for the glow.</p>
+        <p class="notes">Use Shield Generator equipment HP and Morphogenetic Field equipment to turn vehicle protection visuals on or off. Supports Shield Generator [A], [B], [C], [D], and [Prismatic].</p>
+    </div>
+
+    <div class="form-group">
+        <label>Vehicle Protection Visual Mode</label>
+        <div class="form-fields">
+            <select name="vehicleProtectionVisualMode">
+                {{#each protectionVisualModes}}
+                <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+                {{/each}}
+            </select>
+        </div>
+        <p class="notes">Built-In FSA Glow draws a soft pulsating outline without TokenMagic. TokenMagic FX uses compatible TokenMagic filters when that module is installed.</p>
     </div>
 
     <hr>
