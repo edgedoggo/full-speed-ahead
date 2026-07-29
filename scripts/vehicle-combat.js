@@ -188,6 +188,9 @@ Hooks.once("init", () => {
 });
 
 Hooks.once("ready", () => {
+    game.fullSpeedAheadVehicleCombat = {
+        syncVehicleShields
+    };
     syncActiveVehicleCombat();
     syncVehicleShields();
 });

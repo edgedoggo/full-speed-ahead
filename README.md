@@ -19,6 +19,7 @@ Full Speed Ahead rotates vehicle tokens toward their movement destination, can s
 - Global Vehicle Hover Effect panel for X offset, Y offset, and speed, with per-vehicle desynced hover timing.
 - Vehicle Combat Settings panel with an optional mode that sends vehicle crew to combat instead of the vehicle combatant.
 - Optional vehicle protection automation reads Shield Generator equipment HP and Morphogenetic Field equipment, with built-in FSA glow or TokenMagic visual modes.
+- Vehicle Operations window for vehicle damage, fuel scooping, mining damage, scans, repairs, Heat Sink decisions, and cargo failure handling.
 - Movement sounds are broadcast once by the movement initiator to avoid doubled playback.
 - Independent character/non-vehicle and vehicle QuickTarget controls for players and GMs.
 - Token-control QuickTarget button for GMs and players.

@@ -1,0 +1,191 @@
+<form class="fsa-vehicle-ops" autocomplete="off">
+    <nav class="tabs fsa-vehicle-ops-tabs" data-group="primary">
+        <a class="item active" data-tab="attack">Attack Damage</a>
+        <a class="item" data-tab="fuel">Fuel Scooping</a>
+        <a class="item" data-tab="mining">Mining Damage</a>
+        <a class="item" data-tab="scans">Scans</a>
+        <a class="item" data-tab="repair">Repair Ship</a>
+    </nav>
+
+    <p class="fsa-vehicle-ops-summary">
+        <strong>Target:</strong> {{targetName}}<br>
+        <strong>Status:</strong> {{shieldStatus}}<br>
+        {{shieldText}}
+    </p>
+
+    <div class="fsa-vehicle-ops-body">
+        <section class="tab active" data-tab="attack" data-group="primary">
+            <p class="notes">Only modules which are lower than the AC of the attack will be hit in the attack.</p>
+
+            <div class="form-group">
+                <label>Damage Type</label>
+                <select name="damageType">
+                    <option value="thermal" {{#if shieldsUp}}selected{{/if}}>Thermal / Shield</option>
+                    <option value="hull" {{#unless shieldsUp}}selected{{/unless}}>Hull</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Attack</label>
+                <input type="number" name="attack" value="{{attack}}" placeholder="Attack total">
+            </div>
+
+            <div class="form-group">
+                <label>Damage</label>
+                <input type="number" name="damage" value="{{damage}}" min="0">
+            </div>
+
+            <div class="form-group">
+                <label>Channel Damage</label>
+                <select name="targetModule">
+                    {{#each attackModules}}
+                    <option value="{{id}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+                    {{/each}}
+                </select>
+            </div>
+
+            <button type="button" data-action="apply-damage"><i class="fas fa-bomb"></i> Apply Damage</button>
+        </section>
+
+        <section class="tab" data-tab="fuel" data-group="primary">
+            <p class="notes">Fuel scooping uses a fixed attack total of 25. Damage stays editable and defaults from the last damage roll.</p>
+
+            <div class="form-group">
+                <label>Damage Type</label>
+                <select name="fuel-damageType">
+                    <option value="thermal">Thermal / Shield</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Attack</label>
+                <input type="number" name="fuel-attack" value="25">
+            </div>
+
+            <div class="form-group">
+                <label>Damage</label>
+                <input type="number" name="fuel-damage" value="{{damage}}" min="0">
+            </div>
+
+            <div class="form-group">
+                <label>Damage Module</label>
+                <select name="fuel-targetModule">
+                    {{#each fuelModules}}
+                    <option value="{{id}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+                    {{/each}}
+                </select>
+            </div>
+
+            <div class="fsa-fuel-grant">
+                <label>Hydrogen Fuel Scooped</label>
+                <input type="number" name="fuelYield" value="{{fuelYield}}" min="0">
+                <button type="button" data-action="grant-fuel"><i class="fas fa-gas-pump"></i> Add Hydrogen Fuel</button>
+            </div>
+
+            <button type="button" data-action="apply-fuel-damage"><i class="fas fa-fire"></i> Apply Fuel Scoop Damage</button>
+        </section>
+
+        <section class="tab" data-tab="mining" data-group="primary">
+            <p class="notes">Refinery takes this damage first when installed.<br>Only modules which are lower than the AC of the attack will be hit in the attack.</p>
+
+            <div class="form-group">
+                <label>Damage Type</label>
+                <select name="mining-damageType">
+                    <option value="hull" {{#unless shieldsUp}}selected{{/unless}}>Hull</option>
+                    <option value="thermal" {{#if shieldsUp}}selected{{/if}}>Thermal / Shield</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Attack</label>
+                <input type="number" name="mining-attack" value="{{attack}}" placeholder="Attack total">
+            </div>
+
+            <div class="form-group">
+                <label>Damage</label>
+                <input type="number" name="mining-damage" value="{{damage}}" min="0">
+            </div>
+
+            <div class="form-group">
+                <label>Damage Module</label>
+                <select name="mining-targetModule">
+                    {{#each miningModules}}
+                    <option value="{{id}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+                    {{/each}}
+                </select>
+            </div>
+
+            <button type="button" data-action="apply-mining-damage"><i class="fas fa-gem"></i> Apply Mining Damage</button>
+        </section>
+
+        <section class="tab" data-tab="scans" data-group="primary">
+            <p class="notes">Scan the selected craft's combat profile, registered manifest, or detected jump wake.</p>
+
+            <div class="form-group">
+                <label>Scan Type</label>
+                <select name="scanType">
+                    <option value="tactical">Tactical Scan</option>
+                    <option value="manifest">Manifest Scan</option>
+                    <option value="wake">Wake Scanner</option>
+                </select>
+            </div>
+
+            <div class="form-group" data-scan-destination style="display:none;">
+                <label>Destination System</label>
+                <select name="scanDestination">
+                    {{#each destinations}}
+                    <option value="{{name}}">{{name}}</option>
+                    {{else}}
+                    <option value="">No TradeHub destinations found</option>
+                    {{/each}}
+                </select>
+            </div>
+
+            <button type="button" data-action="scan"><i class="fas fa-satellite-dish"></i> Perform Scan</button>
+        </section>
+
+        <section class="tab" data-tab="repair" data-group="primary">
+            <p class="notes">Make Pristine recalculates HP, AC, module value, jump data, and restores all module condition. Full Service Repair can bill TradeHub Capital. Ability Check Repair applies the entered repair HP without billing.</p>
+
+            <div class="form-group">
+                <label>Repair Action</label>
+                <select name="repairAction">
+                    <option value="heal" selected>Ability Check Repair</option>
+                    <option value="full-service">Full Service Repair and Replace</option>
+                    <option value="pristine">Make Pristine</option>
+                </select>
+            </div>
+
+            <div class="form-group" data-repair-hp-row>
+                <label>Repair HP</label>
+                <input type="number" name="repairHp" value="{{damage}}" min="0" placeholder="HP from card or repair roll">
+            </div>
+
+            <div class="form-group" data-repair-bill-row style="display:none;">
+                <label>Bill the TradeHub Capital</label>
+                <input type="checkbox" name="billCapital" checked>
+            </div>
+
+            <div class="form-group">
+                <label>Repair Module</label>
+                <select name="repairTargetModule">
+                    {{#each repairModules}}
+                    <option value="{{id}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+                    {{/each}}
+                </select>
+            </div>
+
+            <p class="notes">
+                <strong>Full Service Estimate:</strong> {{repairEstimate}}<br>
+                {{#if insured}}
+                <strong>Glaxon Full Value:</strong> {{repairRawEstimate}}<br>
+                <strong>Glaxon Savings:</strong> {{savings}}<br>
+                {{/if}}
+                <strong>TradeHub Capital:</strong> {{tradeHubCapital}}<br>
+                <strong>TradeHub Capital After:</strong> {{repairAfter}}
+            </p>
+
+            <button type="button" data-action="repair"><i class="fas fa-wrench"></i> Repair Ship</button>
+        </section>
+    </div>
+</form>
