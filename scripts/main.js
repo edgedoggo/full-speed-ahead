@@ -1083,7 +1083,48 @@ function clampNumber(value, min, max, fallback) {
 }
 
 function openFullSpeedAheadSettings() {
-    return new FullSpeedAheadSettingsHub().render(true);
+    const SettingsClass = globalThis.SettingsConfig;
+    if (!SettingsClass) return new FullSpeedAheadSettingsHub().render(true);
+
+    const settingsApp = game.settings?.sheet instanceof SettingsClass ? game.settings.sheet : new SettingsClass();
+    const activateFsaPage = () => activateFullSpeedAheadSettingsPage(settingsApp);
+    Hooks.once("renderSettingsConfig", app => {
+        if (app === settingsApp || app?.id === settingsApp.id) activateFsaPage();
+    });
+    settingsApp.render(true);
+    window.setTimeout(activateFsaPage, 50);
+    window.setTimeout(activateFsaPage, 200);
+    return settingsApp;
+}
+
+function activateFullSpeedAheadSettingsPage(settingsApp) {
+    const root = settingsApp?.element;
+    if (!root?.length) return false;
+
+    const search = root.find('input[type="search"], input[name="filter"], input[name="search"], input[placeholder="Filter"]').first();
+    if (search.length && search.val()) search.val("").trigger("input").trigger("keyup").trigger("change");
+
+    const tabId = MODULE_ID;
+    if (settingsApp._tabs?.[0]?.activate) settingsApp._tabs[0].activate(tabId);
+
+    const tabButton = root.find(`[data-tab="${tabId}"], [data-category="${tabId}"], [data-package-id="${tabId}"]`).filter((_index, element) => {
+        return !element.classList.contains("tab");
+    }).first();
+
+    if (tabButton.length) {
+        tabButton.trigger("click");
+        tabButton[0].scrollIntoView?.({ block: "center" });
+    } else {
+        root.find(".tabs .item, nav .item, aside li, aside a").filter((_index, element) => {
+            return element.textContent?.trim().startsWith("Full Speed Ahead");
+        }).first().trigger("click");
+    }
+
+    root.find(".tab").removeClass("active");
+    root.find(`.tab[data-tab="${tabId}"], [data-tab-content="${tabId}"]`).addClass("active");
+    root.find(".tabs .item, nav .item").removeClass("active");
+    root.find(`.tabs .item[data-tab="${tabId}"], nav .item[data-tab="${tabId}"], [data-category="${tabId}"], [data-package-id="${tabId}"]`).addClass("active");
+    return true;
 }
 
 function openFullSpeedAheadPanel(panel) {

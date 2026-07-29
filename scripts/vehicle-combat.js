@@ -909,55 +909,17 @@ function renderVehicleCrewTracker(app, html) {
         const row = html.find(`[data-combatant-id="${combatant.id}"]`);
         if (!row.length) continue;
 
-        row.addClass(`full-speed-ahead-crew-combatant full-speed-ahead-crew-${mode}`).attr({
+        row.removeClass("full-speed-ahead-crew-full full-speed-ahead-crew-simple")
+            .addClass(`full-speed-ahead-crew-combatant full-speed-ahead-crew-${mode}`).attr({
             "data-full-speed-ahead-vehicle-token-id": data.vehicleTokenId ?? "",
             title: `${data.role} (${data.ability}) - ${data.vehicleName}`
         });
         if (data.artificial) row.addClass("full-speed-ahead-crew-artificial");
 
-        const portrait = row.find(".token-image").first();
-        if (portrait.length && !portrait.parent().hasClass("full-speed-ahead-crew-portrait")) {
-            portrait.wrap('<div class="full-speed-ahead-crew-portrait"></div>');
-        }
-        const portraitWrapper = row.find(".full-speed-ahead-crew-portrait").first();
-        portraitWrapper.find(".full-speed-ahead-vessel-image").remove();
-        portraitWrapper.find(".full-speed-ahead-ship-badge").remove();
-
-        let roleBlock = row.find(".full-speed-ahead-vehicle-role").first();
-        if (mode === VEHICLE_COMBAT_DISPLAY_MODES.FULL && !roleBlock.length && portraitWrapper.length) {
-            roleBlock = $(`<div class="full-speed-ahead-vehicle-role">
-                <img class="full-speed-ahead-vessel-image" src="${escapeHtml(data.vehicleImg)}" alt="${escapeHtml(data.vehicleName)}">
-            </div>`);
-            portraitWrapper.before(roleBlock);
-        }
-        if (mode === VEHICLE_COMBAT_DISPLAY_MODES.FULL) {
-            roleBlock.find("img").attr({ src: data.vehicleImg, alt: data.vehicleName });
-        } else {
-            roleBlock.remove();
-            if (portraitWrapper.length && !portraitWrapper.find(".full-speed-ahead-ship-badge").length) {
-                portraitWrapper.append(`<img class="full-speed-ahead-ship-badge" src="${escapeHtml(badgeIcon)}" alt="">`);
-            }
-        }
-
-        const nameContainer = row.find(".token-name").first();
-        const heading = nameContainer.find("h4").first();
         const crewName = combatant.name || "Crew";
-        nameContainer.find(".full-speed-ahead-crew-role-line").remove();
-
-        if (mode === VEHICLE_COMBAT_DISPLAY_MODES.FULL) {
-            const combinedName = `${data.vehicleName} / ${crewName}`;
-            if (heading.length) {
-                heading.text(combinedName);
-                heading.after(`<div class="full-speed-ahead-crew-role-line">${escapeHtml(data.role || "Crew")}${data.ability ? ` (${escapeHtml(data.ability)})` : ""}</div>`);
-            } else if (nameContainer.length) {
-                nameContainer.text(combinedName);
-                nameContainer.append(`<div class="full-speed-ahead-crew-role-line">${escapeHtml(data.role || "Crew")}${data.ability ? ` (${escapeHtml(data.ability)})` : ""}</div>`);
-            }
-        } else if (heading.length) {
-            heading.text(crewName);
-        } else if (nameContainer.length) {
-            nameContainer.text(crewName);
-        }
+        row.find(".full-speed-ahead-combat-row").remove();
+        const controls = detachCombatantControls(row);
+        row.empty().append(buildVehicleCombatantRow({ combatant, data, mode, badgeIcon, crewName, controls }));
 
         row.off("dblclick.fullSpeedAheadVehicleCombat").on("dblclick.fullSpeedAheadVehicleCombat", () => {
             const token = canvas.tokens?.get(data.vehicleTokenId);
@@ -966,6 +928,37 @@ function renderVehicleCrewTracker(app, html) {
             token.control({ releaseOthers: true });
         });
     }
+}
+
+function buildVehicleCombatantRow({ combatant, data, mode, badgeIcon, crewName, controls }) {
+    const full = mode === VEHICLE_COMBAT_DISPLAY_MODES.FULL;
+    const row = $(`<div class="full-speed-ahead-combat-row"></div>`);
+    const images = $(`<div class="full-speed-ahead-combat-images"></div>`);
+    const crewImg = combatant.img || DEFAULT_SILHOUETTE;
+
+    if (full) {
+        images.append(`<img class="full-speed-ahead-combat-ship" src="${escapeHtml(data.vehicleImg)}" alt="${escapeHtml(data.vehicleName)}">`);
+    }
+
+    const crewPortrait = $(`<div class="full-speed-ahead-combat-crew-wrap">
+        <img class="full-speed-ahead-combat-crew" src="${escapeHtml(crewImg)}" alt="${escapeHtml(crewName)}">
+    </div>`);
+    if (!full) crewPortrait.append(`<img class="full-speed-ahead-ship-badge" src="${escapeHtml(badgeIcon)}" alt="">`);
+    images.append(crewPortrait);
+
+    const label = full ? `${data.vehicleName} / ${crewName}` : crewName;
+    row.append(images);
+    row.append(`<div class="full-speed-ahead-combat-name"><h4>${escapeHtml(label)}</h4></div>`);
+    row.append($(`<div class="full-speed-ahead-combat-controls"></div>`).append(controls));
+    return row;
+}
+
+function detachCombatantControls(row) {
+    const controls = [];
+    row.find(".token-initiative, .combatant-controls").each((_index, element) => {
+        controls.push(element);
+    });
+    return $(controls).detach();
 }
 
 function isVehicleActor(actor) {

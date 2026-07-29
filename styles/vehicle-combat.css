@@ -1,86 +1,108 @@
 .combat-tracker .full-speed-ahead-crew-combatant {
-    align-items: center;
-    column-gap: 7px;
-    display: grid !important;
-    grid-template-columns: 46px 46px minmax(0, 1fr) max-content;
-    min-height: 58px;
-    padding: 6px 8px;
-}
-
-.combat-tracker .full-speed-ahead-crew-combatant .full-speed-ahead-vehicle-role {
-    align-items: center;
-    display: flex;
-    justify-content: center;
-    min-width: 0;
+    display: block !important;
+    min-height: 0;
     padding: 0;
 }
 
-.combat-tracker .full-speed-ahead-crew-combatant .full-speed-ahead-vessel-image {
-    border: 0;
-    display: block;
-    height: 44px;
-    object-fit: contain;
-    width: 44px;
-}
-
-.combat-tracker .full-speed-ahead-crew-combatant .full-speed-ahead-crew-portrait {
+.combat-tracker .full-speed-ahead-combat-row {
     align-items: center;
-    display: flex;
-    height: 48px;
-    justify-content: center;
-    position: relative;
-    width: 48px;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: auto minmax(0, 1fr) max-content;
+    min-height: 58px;
+    padding: 7px 8px;
+    width: 100%;
 }
 
-.combat-tracker .full-speed-ahead-crew-combatant .full-speed-ahead-ship-badge {
-    border: 0;
-    bottom: -3px;
-    filter: brightness(0) invert(1) drop-shadow(0 1px 2px #000);
-    height: 17px;
-    object-fit: contain;
-    pointer-events: none;
-    position: absolute;
-    right: -4px;
-    width: 17px;
-    z-index: 3;
-}
-
-.combat-tracker .full-speed-ahead-crew-combatant .token-image {
-    flex: 0 0 44px;
-    height: 44px;
-    object-fit: cover;
-    position: relative;
-    width: 44px;
-    z-index: 2;
-}
-
-.combat-tracker .full-speed-ahead-crew-combatant .token-name {
-    min-width: 0;
-}
-
-.combat-tracker .full-speed-ahead-crew-combatant .token-name h4,
-.combat-tracker .full-speed-ahead-crew-combatant .token-name {
-    line-height: 1.15;
-    overflow-wrap: anywhere;
-}
-
-.combat-tracker .full-speed-ahead-crew-combatant .full-speed-ahead-crew-role-line {
-    color: #cfcfc8;
-    font-size: 11px;
-    font-weight: 600;
-    line-height: 1.1;
-    margin-top: 2px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    text-shadow: 0 1px 2px #000;
-    white-space: nowrap;
-}
-
-.combat-tracker .full-speed-ahead-crew-combatant.full-speed-ahead-crew-simple {
+.combat-tracker .full-speed-ahead-crew-simple .full-speed-ahead-combat-row {
     grid-template-columns: 48px minmax(0, 1fr) max-content;
 }
 
-.combat-tracker .full-speed-ahead-crew-combatant.full-speed-ahead-crew-artificial .token-image {
+.combat-tracker .full-speed-ahead-combat-images {
+    align-items: center;
+    display: grid;
+    gap: 6px;
+    grid-auto-flow: column;
+    grid-auto-columns: 42px;
+    justify-content: center;
+}
+
+.combat-tracker .full-speed-ahead-combat-ship,
+.combat-tracker .full-speed-ahead-combat-crew {
+    border: 0;
+    border-radius: 4px;
+    display: block;
+    height: 42px;
+    max-width: none;
+    object-fit: contain;
+    width: 42px;
+}
+
+.combat-tracker .full-speed-ahead-combat-crew {
+    object-fit: cover;
+}
+
+.combat-tracker .full-speed-ahead-combat-crew-wrap {
+    height: 42px;
+    position: relative;
+    width: 42px;
+}
+
+.combat-tracker .full-speed-ahead-ship-badge {
+    background: rgb(20 20 20 / 86%);
+    border: 1px solid rgb(255 255 255 / 42%);
+    border-radius: 50%;
+    bottom: -4px;
+    box-shadow: 0 1px 4px #000;
+    filter: brightness(0) invert(1);
+    height: 17px;
+    object-fit: contain;
+    padding: 2px;
+    pointer-events: none;
+    position: absolute;
+    right: -5px;
+    width: 17px;
+}
+
+.combat-tracker .full-speed-ahead-combat-name {
+    align-self: center;
+    min-width: 0;
+}
+
+.combat-tracker .full-speed-ahead-combat-name h4 {
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.15;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-shadow: 0 1px 3px #000;
+    white-space: nowrap;
+}
+
+.combat-tracker .full-speed-ahead-combat-controls {
+    align-items: center;
+    display: flex;
+    gap: 4px;
+    justify-content: flex-end;
+    min-width: 34px;
+}
+
+.combat-tracker .full-speed-ahead-combat-controls:empty {
+    display: none;
+}
+
+.combat-tracker .full-speed-ahead-combat-controls .token-initiative,
+.combat-tracker .full-speed-ahead-combat-controls .combatant-controls {
+    align-items: center;
+    display: flex;
+    flex: 0 0 auto;
+    gap: 4px;
+    margin: 0;
+    position: static;
+}
+
+.combat-tracker .full-speed-ahead-crew-combatant.full-speed-ahead-crew-artificial .full-speed-ahead-combat-crew {
     filter: grayscale(1);
     opacity: 0.9;
 }
