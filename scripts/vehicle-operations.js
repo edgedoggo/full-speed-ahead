@@ -422,6 +422,20 @@ class VehicleModuleService {
         await actor.update({ "system.attributes.hp.value": 1 }, { fullSpeedAheadVehicleOperation: true });
     }
 
+    static async enableModulesForPowerCoreRestore(actor) {
+        if (!actor || actor.type !== "vehicle") return;
+        const updates = Array.from(actor.items ?? [])
+            .filter(item => this.isShipModuleItem(item) && this.itemHp(item) > 0)
+            .map(item => ({
+                _id: item.id,
+                "system.equipped": true,
+                [`flags.${FSA_MODULE_ID}.${FSA_DESTROYED_FLAG}`]: false,
+                "flags.tradehub-markets.destroyedUnequipped": false
+            }));
+        if (updates.length) await actor.updateEmbeddedDocuments("Item", updates, { fullSpeedAheadVehicleOperation: true });
+        await this.syncVehicleHpFromModules(actor);
+    }
+
     static currentModuleHpTotal(actor) {
         return this.damageableModules(actor).reduce((sum, item) => sum + Math.max(0, Math.min(this.itemHp(item), this.itemMaxHp(item))), 0);
     }
@@ -1785,21 +1799,28 @@ Hooks.on("deleteItem", (item, options, _userId) => {
     if (shouldScheduleVehicleModuleSync(item, options)) VehicleModuleService.scheduleStructuralSync(item.parent, "Module deleted");
 });
 Hooks.on("updateItem", async (item, changes, options) => {
-    if (await maybeHandleManualPowerCoreShutdown(item, changes, options)) return;
+    if (await maybeHandleManualPowerCoreStateChange(item, changes, options)) return;
     if (!shouldScheduleVehicleModuleSync(item, options)) return;
     const relevant = ["system.equipped", "system.hp.max", "system.armor.value", "system.ac.value", "system.price", "system.price.value", "name"].some(path => foundry.utils.hasProperty(changes, path) || Object.prototype.hasOwnProperty.call(changes, path));
     if (relevant) VehicleModuleService.scheduleStructuralSync(item.parent, "Module changed");
 });
 
-async function maybeHandleManualPowerCoreShutdown(item, changes, options = {}) {
+async function maybeHandleManualPowerCoreStateChange(item, changes, options = {}) {
     if (options?.fullSpeedAheadVehicleOperation) return false;
     if (!game.user?.isGM || item?.parent?.type !== "vehicle") return false;
     if (!VehicleModuleService.isShipModuleItem(item) || !VehicleModuleService.isPowerCore(item)) return false;
 
     const equippedChanged = foundry.utils.hasProperty(changes, "system.equipped") || Object.prototype.hasOwnProperty.call(changes, "system.equipped");
     const hpChanged = foundry.utils.hasProperty(changes, "system.hp.value") || Object.prototype.hasOwnProperty.call(changes, "system.hp.value");
+    const explicitlyEquipped = equippedChanged && item.system?.equipped === true;
     const explicitlyUnequipped = equippedChanged && item.system?.equipped !== true;
     const reducedToZero = hpChanged && VehicleModuleService.itemHp(item) <= 0;
+    if (explicitlyEquipped && VehicleModuleService.itemHp(item) > 0) {
+        await VehicleModuleService.enableModulesForPowerCoreRestore(item.parent);
+        ui.notifications.info(`${item.parent.name} Power Core is online. Modules with HP above 0 were equipped.`);
+        return true;
+    }
+
     if (!explicitlyUnequipped && !reducedToZero) return false;
 
     await VehicleModuleService.disableModulesForPowerCoreFailure(item.parent);
