@@ -73,6 +73,7 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
             vehicleCombatShipIcon: game.settings.get(MODULE_ID, "vehicleCombatShipIcon"),
             vehicleCombatDebug: game.settings.get(MODULE_ID, "vehicleCombatDebug"),
             vehicleOpsEnabled: safeGetModuleSetting("vehicleOpsEnabled", true),
+            vehicleOpsShowFloatingMenuGM: safeGetModuleSetting("vehicleOpsShowFloatingMenuGM", true),
             vehicleOpsShowFloatingMenuPlayers: safeGetModuleSetting("vehicleOpsShowFloatingMenuPlayers", false),
             vehicleOpsScansEnabled: safeGetModuleSetting("vehicleOpsScansEnabled", true),
             vehicleOpsRepairCostPerHp: safeGetModuleSetting("vehicleOpsRepairCostPerHp", 100),
@@ -94,12 +95,12 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
             crewMatchModes: [
                 {
                     value: VEHICLE_CREW_MATCH_MODES.PLACEHOLDERS,
-                    label: "Match sidebar actors, generate placeholder actors for non-matches (default)",
+                    label: "Match + Generate Actors",
                     selected: game.settings.get(MODULE_ID, "vehicleCrewMatchMode") === VEHICLE_CREW_MATCH_MODES.PLACEHOLDERS
                 },
                 {
                     value: VEHICLE_CREW_MATCH_MODES.MATCH_ONLY,
-                    label: "Match sidebar actors only",
+                    label: "Match Actors Only",
                     selected: game.settings.get(MODULE_ID, "vehicleCrewMatchMode") === VEHICLE_CREW_MATCH_MODES.MATCH_ONLY
                 }
             ],
@@ -128,6 +129,7 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
         await game.settings.set(MODULE_ID, "vehicleCombatShipIcon", String(formData.vehicleCombatShipIcon || DEFAULT_SHIP_BADGE).trim());
         await game.settings.set(MODULE_ID, "vehicleCombatDebug", Boolean(formData.vehicleCombatDebug));
         await safeSetModuleSetting("vehicleOpsEnabled", Boolean(formData.vehicleOpsEnabled));
+        await safeSetModuleSetting("vehicleOpsShowFloatingMenuGM", Boolean(formData.vehicleOpsShowFloatingMenuGM));
         await safeSetModuleSetting("vehicleOpsShowFloatingMenuPlayers", Boolean(formData.vehicleOpsShowFloatingMenuPlayers));
         await safeSetModuleSetting("vehicleOpsScansEnabled", Boolean(formData.vehicleOpsScansEnabled));
         await safeSetModuleSetting("vehicleOpsRepairCostPerHp", Math.max(0, Number(formData.vehicleOpsRepairCostPerHp || 0)));
@@ -169,8 +171,8 @@ Hooks.once("init", () => {
         hint: "Choose whether unmatched Cargo/Crew names create placeholder combatants or are skipped.",
         type: String,
         choices: {
-            [VEHICLE_CREW_MATCH_MODES.PLACEHOLDERS]: "Match sidebar actors, generate placeholder actors for non-matches (default)",
-            [VEHICLE_CREW_MATCH_MODES.MATCH_ONLY]: "Match sidebar actors only"
+            [VEHICLE_CREW_MATCH_MODES.PLACEHOLDERS]: "Match + Generate Actors",
+            [VEHICLE_CREW_MATCH_MODES.MATCH_ONLY]: "Match Actors Only"
         },
         default: VEHICLE_CREW_MATCH_MODES.PLACEHOLDERS,
         config: false

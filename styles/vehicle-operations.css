@@ -158,6 +158,32 @@
     padding: 4px 6px;
 }
 
+#full-speed-ahead-targeting-cards-config nav.tabs {
+    border-bottom: 1px solid rgba(80, 80, 72, 0.55);
+    display: flex;
+    gap: 12px;
+    margin: 0 0 12px;
+    padding: 6px 0 10px;
+}
+
+#full-speed-ahead-targeting-cards-config nav.tabs .item {
+    flex: 1;
+    line-height: 1.3;
+    padding: 5px 6px;
+    text-align: center;
+}
+
+#full-speed-ahead-targeting-cards-config nav.tabs .item.active {
+    color: #7a2b18;
+    text-shadow: 0 0 8px rgba(255, 120, 80, 0.35);
+}
+
+#full-speed-ahead-targeting-cards-config h2 {
+    border-bottom: 1px solid rgba(130, 30, 20, 0.55);
+    margin: 0 0 8px;
+    padding-bottom: 4px;
+}
+
 .fsa-vehicle-ops-tabs {
     display: grid;
     grid-template-columns: repeat(5, 44px) 1fr 44px;

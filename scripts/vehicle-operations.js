@@ -1725,7 +1725,7 @@ Hooks.on("updateSetting", setting => {
 });
 
 Hooks.on("getSceneControlButtons", controls => {
-    if (!game.user.isGM && !game.settings.get(FSA_MODULE_ID, "vehicleOpsShowFloatingMenuPlayers")) return;
+    if (!canShowFsaFloatingMenu()) return;
     const tokenControls = Array.isArray(controls) ? controls.find(control => control.name === "token") : controls?.token;
     const tools = Array.isArray(tokenControls?.tools) ? tokenControls.tools : null;
     if (!tools || tools.some(tool => tool.name === "full-speed-ahead-vehicle-operations")) return;
@@ -1766,7 +1766,7 @@ function shouldScheduleVehicleModuleSync(item, options = {}) {
 
 function canShowFsaFloatingMenu() {
     if (!game.settings.get(FSA_MODULE_ID, "vehicleOpsEnabled")) return false;
-    if (game.user.isGM) return true;
+    if (game.user.isGM) return game.settings.get(FSA_MODULE_ID, "vehicleOpsShowFloatingMenuGM");
     return game.settings.get(FSA_MODULE_ID, "vehicleOpsShowFloatingMenuPlayers");
 }
 
@@ -1907,6 +1907,7 @@ function installTradeHubCapitalRefreshBridge() {
 function refreshFsaFloatingMenu() {
     FullSpeedAheadFloatingMenu.close();
     FullSpeedAheadFloatingMenu.render();
+    ui.controls?.render?.(true);
 }
 
 function rerenderOpenVehicleSheets() {
@@ -1937,8 +1938,9 @@ function registerVehicleOpsSettings() {
     register("vehicleOperationsData", { name: "Vehicle Operations Data", type: Object, default: foundry.utils.deepClone(FSA_DEFAULT_DATA), config: false });
     register("vehicleOpsFallbackCapital", { name: "Shared Capital Balance", hint: "Fallback shared capital used when TradeHub Markets is not active. When TradeHub is active, FSA mirrors TradeHub's internal capital here so the ledger remains continuous.", type: Number, default: 0, config: false });
     register("vehicleOpsFallbackCapitalWasUsed", { name: "Shared Capital Fallback Was Used", hint: "Tracks whether FSA should seed TradeHub capital from the local fallback when TradeHub becomes active.", type: Boolean, default: false, config: false });
-    register("vehicleOpsEnabled", { name: "Enable Vehicle Operations", hint: "Enable Full Speed Ahead's Apply Damage, Fuel Scooping, Mining Damage, Scans, Repair Ship, Heat Sink, and cargo failure tools.", type: Boolean, default: true, config: false, onChange: refreshFsaFloatingMenu });
+    register("vehicleOpsEnabled", { name: "Enable Vehicle Operations", hint: "Enable Full Speed Ahead's vehicle operation logic for ship items, damage calculation, fuel scooping, mining damage, scans, repair, heat sinks, and cargo failure tools.", type: Boolean, default: true, config: false, onChange: refreshFsaFloatingMenu });
     register("vehicleSheetToolsEnabled", { name: "Show FSA Vehicle Sheet Tools", hint: "Show Long Rest, Registration, Chat Loadout, and Fuel Release controls on owned vehicle sheets.", type: Boolean, default: true, config: false, onChange: rerenderOpenVehicleSheets });
+    register("vehicleOpsShowFloatingMenuGM", { name: "Show GM FSA Floating Menu", hint: "Show the draggable FSA floating operations menu and vehicle operations scene-control button to the GM.", type: Boolean, default: true, config: false, onChange: refreshFsaFloatingMenu });
     register("vehicleOpsShowFloatingMenuPlayers", { name: "Show FSA Floating Menu to Players", hint: "Show the draggable FSA floating operations menu to non-GM users.", type: Boolean, default: false, config: false, onChange: refreshFsaFloatingMenu });
     register("vehicleOpsFloatingMenuPosition", { name: "Vehicle Operations Floating Menu Position", type: Object, default: { left: 14, top: 125 }, config: false });
     register("vehicleOpsScansEnabled", { name: "Enable Vehicle Operation Scans", hint: "Allow Tactical, Manifest, and Wake scans from the vehicle operations window.", type: Boolean, default: true, config: false });

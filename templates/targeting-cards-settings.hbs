@@ -1,81 +1,94 @@
 <form autocomplete="off">
-    <div class="form-group">
-        <label>Enable QuickTarget</label>
-        <input type="checkbox" name="enableTargetingSystem" {{checked enableTargetingSystem}}>
-        <p class="notes">Enable QuickTarget for characters and other non-vehicle interactions. Vehicle QuickTarget is controlled separately below.</p>
+    <nav class="tabs fsa-quicktarget-tabs" data-group="primary">
+        <a class="item" data-tab="general"><i class="fas fa-crosshairs"></i> General</a>
+        <a class="item" data-tab="chat-cards"><i class="fas fa-comments"></i> Chat Cards</a>
+    </nav>
+
+    <div class="fsa-quicktarget-body">
+        <section class="tab" data-tab="general" data-group="primary">
+            <div class="form-group">
+                <label>Enable QuickTarget</label>
+                <input type="checkbox" name="enableTargetingSystem" {{checked enableTargetingSystem}}>
+                <p class="notes">Enable QuickTarget for characters and other non-vehicle interactions. Vehicle QuickTarget is controlled separately below.</p>
+            </div>
+
+            <div class="form-group">
+                <label>Enable QuickTarget for Players</label>
+                <input type="checkbox" name="enableTargetingSystemPlayers" {{checked enableTargetingSystemPlayers}}>
+                <p class="notes">Enable non-vehicle QuickTarget and its scene-control button for non-GM users.</p>
+            </div>
+
+            <div class="form-group">
+                <label>Enable QuickTarget for GM</label>
+                <input type="checkbox" name="enableTargetingSystemGM" {{checked enableTargetingSystemGM}}>
+                <p class="notes">Enable non-vehicle QuickTarget and its scene-control button for the GM.</p>
+            </div>
+
+            <hr>
+
+            <div class="form-group">
+                <label>Vehicle QuickTarget</label>
+                <input type="checkbox" name="enableVehicleQuickTarget" {{checked enableVehicleQuickTarget}}>
+                <p class="notes">Master switch for QuickTarget on vehicle tokens.</p>
+            </div>
+
+            <div class="form-group">
+                <label>Vehicle QuickTarget for Players</label>
+                <input type="checkbox" name="enableVehicleQuickTargetPlayers" {{checked enableVehicleQuickTargetPlayers}}>
+                <p class="notes">Enable vehicle QuickTarget for non-GM players.</p>
+            </div>
+
+            <div class="form-group">
+                <label>Vehicle QuickTarget for GM</label>
+                <input type="checkbox" name="enableVehicleQuickTargetGM" {{checked enableVehicleQuickTargetGM}}>
+                <p class="notes">Enable vehicle QuickTarget for the GM.</p>
+            </div>
+
+            <div class="form-group">
+                <label>Replace Double Right-Click Targeting</label>
+                <input type="checkbox" name="replaceDoubleRightClickTargeting" {{checked replaceDoubleRightClickTargeting}}>
+                <p class="notes">Use the applicable non-vehicle or vehicle QuickTarget settings when double right-clicking a token. Leave unchecked to keep Foundry's default targeting behavior.</p>
+            </div>
+
+            <hr>
+
+            <div class="form-group">
+                <label>Enable Timeout</label>
+                <input type="checkbox" name="autoRemoveTargetingTemplate" {{checked autoRemoveTargetingTemplate}}>
+                <p class="notes">Automatically clear QuickTarget labels and range templates after the configured number of seconds.</p>
+            </div>
+
+            <div class="form-group">
+                <label>Timeout Seconds</label>
+                <div class="form-fields">
+                    <input type="number" name="targetingTemplateRemovalSeconds" value="{{targetingTemplateRemovalSeconds}}" min="1" max="120" step="1">
+                </div>
+            </div>
+        </section>
+
+        <section class="tab" data-tab="chat-cards" data-group="primary">
+            <h2>Targeting Chat Cards</h2>
+            <p class="notes">When this is enabled, targeting info will be sent into the chat for players to utilize when attacking. In this way, the character sheet does not need to be opened.</p>
+            <p class="notes">Character and vehicle helper chat cards can be hidden independently for each player. QuickTarget selection still works.</p>
+
+            <hr>
+
+            {{#if hasUsers}}
+            {{#each users}}
+            <div class="form-group">
+                <label>Hide Helper Chat Card for Characters — {{name}}</label>
+                <input type="checkbox" name="disableCharacterCardUser_{{id}}" {{checked characterDisabled}}>
+            </div>
+            <div class="form-group">
+                <label>Hide Helper Chat Card for Vehicles — {{name}}</label>
+                <input type="checkbox" name="disableVehicleCardUser_{{id}}" {{checked vehicleDisabled}}>
+            </div>
+            {{/each}}
+            {{else}}
+            <p class="notes">No non-GM player accounts were found.</p>
+            {{/if}}
+        </section>
     </div>
-
-    <div class="form-group">
-        <label>Enable QuickTarget for Players</label>
-        <input type="checkbox" name="enableTargetingSystemPlayers" {{checked enableTargetingSystemPlayers}}>
-        <p class="notes">Enable non-vehicle QuickTarget and its scene-control button for non-GM users.</p>
-    </div>
-
-    <div class="form-group">
-        <label>Enable QuickTarget for GM</label>
-        <input type="checkbox" name="enableTargetingSystemGM" {{checked enableTargetingSystemGM}}>
-        <p class="notes">Enable non-vehicle QuickTarget and its scene-control button for the GM.</p>
-    </div>
-
-    <hr>
-
-    <div class="form-group">
-        <label>Vehicle QuickTarget</label>
-        <input type="checkbox" name="enableVehicleQuickTarget" {{checked enableVehicleQuickTarget}}>
-        <p class="notes">Master switch for QuickTarget on vehicle tokens.</p>
-    </div>
-
-    <div class="form-group">
-        <label>Vehicle QuickTarget for Players</label>
-        <input type="checkbox" name="enableVehicleQuickTargetPlayers" {{checked enableVehicleQuickTargetPlayers}}>
-        <p class="notes">Enable vehicle QuickTarget for non-GM players.</p>
-    </div>
-
-    <div class="form-group">
-        <label>Vehicle QuickTarget for GM</label>
-        <input type="checkbox" name="enableVehicleQuickTargetGM" {{checked enableVehicleQuickTargetGM}}>
-        <p class="notes">Enable vehicle QuickTarget for the GM.</p>
-    </div>
-
-    <div class="form-group">
-        <label>Replace Double Right-Click Targeting</label>
-        <input type="checkbox" name="replaceDoubleRightClickTargeting" {{checked replaceDoubleRightClickTargeting}}>
-        <p class="notes">Use the applicable non-vehicle or vehicle QuickTarget settings when double right-clicking a token. Leave unchecked to keep Foundry's default targeting behavior.</p>
-    </div>
-
-    <hr>
-
-    <div class="form-group">
-        <label>Enable Timeout</label>
-        <input type="checkbox" name="autoRemoveTargetingTemplate" {{checked autoRemoveTargetingTemplate}}>
-        <p class="notes">Automatically clear QuickTarget labels and range templates after the configured number of seconds.</p>
-    </div>
-
-    <div class="form-group">
-        <label>Timeout Seconds</label>
-        <div class="form-fields">
-            <input type="number" name="targetingTemplateRemovalSeconds" value="{{targetingTemplateRemovalSeconds}}" min="1" max="120" step="1">
-        </div>
-    </div>
-
-    <hr>
-
-    {{#if hasUsers}}
-    <p class="notes">Character and vehicle helper chat cards can be hidden independently for each player. QuickTarget selection still works.</p>
-
-    {{#each users}}
-    <div class="form-group">
-        <label>Hide Helper Chat Card for Characters — {{name}}</label>
-        <input type="checkbox" name="disableCharacterCardUser_{{id}}" {{checked characterDisabled}}>
-    </div>
-    <div class="form-group">
-        <label>Hide Helper Chat Card for Vehicles — {{name}}</label>
-        <input type="checkbox" name="disableVehicleCardUser_{{id}}" {{checked vehicleDisabled}}>
-    </div>
-    {{/each}}
-    {{else}}
-    <p class="notes">No non-GM player accounts were found.</p>
-    {{/if}}
 
     <footer class="sheet-footer flexrow">
         <button type="submit">

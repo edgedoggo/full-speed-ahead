@@ -14,6 +14,8 @@
                 {{/each}}
             </select>
         </div>
+        <p class="notes"><strong>Match + Generate Actors:</strong> matches actors from the sidebar in the world and adds them to initiative order under the vessel. It also generates crew members that have no sidebar actor but do have a name, using a blank token.</p>
+        <p class="notes"><strong>Match Actors Only:</strong> matches actors from the sidebar, but omits anyone who does not have a sidebar actor.</p>
     </div>
 
     <hr>
@@ -45,13 +47,19 @@
     <div class="form-group">
         <label>Enable Vehicle Operations</label>
         <input type="checkbox" name="vehicleOpsEnabled" {{checked vehicleOpsEnabled}}>
-        <p class="notes">Enable Full Speed Ahead's Apply Damage, Fuel Scooping, Mining Damage, Scans, Repair Ship, Heat Sink, and cargo failure tools.</p>
+        <p class="notes">Enable Full Speed Ahead's vehicle operation logic for ship items, damage calculation, fuel scooping, mining damage, scans, repair, heat sinks, and cargo failure tools.</p>
+    </div>
+
+    <div class="form-group">
+        <label>Show GM FSA Floating Menu</label>
+        <input type="checkbox" name="vehicleOpsShowFloatingMenuGM" {{checked vehicleOpsShowFloatingMenuGM}}>
+        <p class="notes">Show the draggable FSA floating operations menu and vehicle operations scene-control button to the GM.</p>
     </div>
 
     <div class="form-group">
         <label>Show FSA Floating Menu to Players</label>
         <input type="checkbox" name="vehicleOpsShowFloatingMenuPlayers" {{checked vehicleOpsShowFloatingMenuPlayers}}>
-        <p class="notes">Show the draggable FSA floating operations menu and vehicle operations scene-control button to non-GM users. GMs always see FSA vehicle operations while enabled.</p>
+        <p class="notes">Show the draggable FSA floating operations menu and vehicle operations scene-control button to non-GM users.</p>
     </div>
 
     <div class="form-group">

@@ -121,6 +121,8 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
     activateListeners(html) {
         super.activateListeners(html);
 
+        html.find(".tabs .item").on("click", () => this.fitWindowToContent(html));
+
         html.find('[data-action="browse-sound"]').on("click", event => {
             event.preventDefault();
             const input = html.find('[name="movementSoundPath"]');
@@ -135,12 +137,14 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
             const key = event.currentTarget.dataset.syncRange;
             html.find(`[data-sync-number="${key}"]`).val(event.currentTarget.value);
             this.previewFromForm(html);
+            this.fitWindowToContent(html);
         });
 
         html.find("[data-sync-number]").on("input change", event => {
             const key = event.currentTarget.dataset.syncNumber;
             html.find(`[data-sync-range="${key}"]`).val(event.currentTarget.value);
             this.previewFromForm(html);
+            this.fitWindowToContent(html);
         });
 
         html.find('[data-color-picker]').on("input", event => {
@@ -161,10 +165,12 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
         html.find('[name="coneCount"]').on("input change", () => {
             this.updateConeVisibility(html);
             this.previewFromForm(html);
+            this.fitWindowToContent(html);
         });
         html.find('[name="enableThrusterEffect"]').on("change", () => {
             this.updateThrusterControlsVisibility(html);
             this.previewFromForm(html);
+            this.fitWindowToContent(html);
         });
         html.find('[name="thrusterInverted"], [name^="extraCone"][name$="Inverted"]').on("change", () => this.previewFromForm(html));
 
@@ -229,11 +235,45 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
             this.updateConeVisibility(html);
             this.updateThrusterControlsVisibility(html);
             this.previewFromForm(html);
+            this.fitWindowToContent(html);
         });
 
         this.updateConeVisibility(html);
         this.updateThrusterControlsVisibility(html);
         this.previewFromForm(html);
+        this.fitWindowToContent(html);
+    }
+
+    fitWindowToContent(html) {
+        const app = html.closest(".app");
+        if (!app.length) return;
+
+        window.requestAnimationFrame(() => {
+            const element = app[0];
+            const header = element.querySelector(".window-header");
+            const content = element.querySelector(".window-content");
+            if (!content) return;
+
+            const maxHeight = Math.max(360, window.innerHeight - 80);
+            const desiredHeight = Math.min(maxHeight, content.scrollHeight + (header?.offsetHeight ?? 0) + 18);
+            this.setPosition({ height: desiredHeight });
+            content.style.overflowY = desiredHeight >= maxHeight ? "auto" : "visible";
+        });
+    }
+
+    syncLiveInputs(html) {
+        html.find("[data-sync-number]").each((index, element) => {
+            const key = element.dataset.syncNumber;
+            html.find(`[data-sync-range="${key}"]`).val(element.value);
+        });
+
+        html.find("[data-color-text]").each((index, element) => {
+            const value = String(element.value ?? "").trim();
+            if (!/^#[0-9a-f]{6}$/i.test(value)) return;
+
+            const key = element.dataset.colorText;
+            html.find(`[data-color-picker="${key}"]`).val(value);
+        });
     }
 
     updateThrusterControlsVisibility(html) {
@@ -249,6 +289,8 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
     }
 
     getThrusterConfigFromForm(html) {
+        this.syncLiveInputs(html);
+
         const fallbackColor = getThrusterColorForTokenDocument(this.tokenDocument);
         const profileName = String(html.find("[name='shipProfileName']").val() ?? (this.tokenDocument ? getShipProfileName(this.tokenDocument) : "")).trim();
         const existingDimensions = getThrusterDimensionsForProfile(canvas.scene?.id, profileName);
@@ -295,6 +337,10 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
     }
 
     async _updateObject(event, formData) {
+        const form = $(event.currentTarget);
+        this.syncLiveInputs(form);
+        if (globalThis.FormDataExtended) formData = new FormDataExtended(event.currentTarget).object;
+
         const tokenDocument = this.tokenDocument;
         const profileName = String(formData.shipProfileName ?? (tokenDocument ? getShipProfileName(tokenDocument) : "")).trim();
         if (!profileName) {
@@ -355,11 +401,19 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
         const shipColor = String(formData.shipThrusterColor ?? fallbackColor).trim();
         profile.thrusterColor = /^#[0-9a-f]{6}$/i.test(shipColor) ? shipColor : fallbackColor;
 
-        profile.thrusterDimensions = this.getThrusterConfigFromForm($(event.currentTarget));
+        const thrusterConfig = this.getThrusterConfigFromForm(form);
+        const existingProfileDimensions = normalizeThrusterConfig(
+            profiles[profileKey]?.thrusterDimensions,
+            profile.thrusterColor
+        );
+        profile.thrusterDimensions = {
+            ...thrusterConfig,
+            scale: existingProfileDimensions.scale
+        };
         profiles[profileKey] = profile;
         await game.settings.set(MODULE_ID, SHIP_PROFILES_SETTING, profiles);
         await setAssignedShipProfileName(tokenDocument, profileName);
-        await clearSceneThrusterDimensionsForProfile(canvas.scene?.id, profileName);
+        await setSceneThrusterScaleForProfile(canvas.scene?.id, profileName, thrusterConfig.scale);
         clearThrusterPreview();
         refreshVehicleHoverEffects();
         game.fullSpeedAheadVehicleCombat?.syncVehicleShields?.();
@@ -445,7 +499,8 @@ class FullSpeedAheadTargetingCardsConfig extends FormApplication {
             title: "Full Speed Ahead: QuickTarget Settings",
             template: `modules/${MODULE_ID}/templates/targeting-cards-settings.hbs`,
             width: 560,
-            closeOnSubmit: true
+            closeOnSubmit: true,
+            tabs: [{ navSelector: ".tabs", contentSelector: ".fsa-quicktarget-body", initial: "general" }]
         });
     }
 
@@ -864,14 +919,14 @@ Hooks.on("renderTokenHUD", (app, html, data) => {
 
     const effectsButton = $(`
         <div class="control-icon full-speed-ahead-effects" title="Full Speed Ahead Movement Effects">
-            <i class="fas fa-cog"></i>
+            <i class="fas fa-rocket"></i>
         </div>
     `);
     effectsButton.css({
-        background: "rgba(30, 105, 220, 0.82)",
-        border: "1px solid rgba(125, 190, 255, 0.95)",
-        color: "#ffffff",
-        boxShadow: "0 0 10px rgba(80, 170, 255, 0.65)"
+        background: "rgba(32, 32, 32, 0.88)",
+        border: "1px solid rgba(255, 180, 80, 0.9)",
+        color: "#ffb24a",
+        boxShadow: "0 0 10px rgba(255, 140, 32, 0.5)"
     });
     effectsButton.on("click", event => {
         event.preventDefault();
@@ -1666,7 +1721,9 @@ function getThrusterDimensionsForProfile(sceneId, shipName) {
     const shipProfile = getShipProfile(shipName);
     const sceneProfile = getSceneThrusterProfile(sceneId, shipName);
     const color = shipProfile?.thrusterColor ?? game.settings.get(MODULE_ID, "thrusterColor") ?? DEFAULT_THRUSTER_COLOR;
-    const config = normalizeThrusterConfig(shipProfile?.thrusterDimensions ?? sceneProfile, color);
+    const profileConfig = normalizeThrusterConfig(shipProfile?.thrusterDimensions, color);
+    const sceneScale = sceneProfile && Number.isFinite(Number(sceneProfile.scale)) ? Number(sceneProfile.scale) : profileConfig.scale;
+    const config = normalizeThrusterConfig({ ...profileConfig, scale: sceneScale }, color);
     config.color = color;
     config.cones[0] = { ...config.cones[0], color };
     return config;
@@ -1725,6 +1782,21 @@ async function setSceneThrusterDimensionsForProfile(sceneId, shipName, dimension
         sceneId: sceneId || "global",
         name: profileName,
         ...normalizeThrusterConfig(dimensions, getShipProfile(profileName)?.thrusterColor ?? DEFAULT_THRUSTER_COLOR)
+    };
+    await game.settings.set(MODULE_ID, SCENE_THRUSTER_PROFILES_SETTING, profiles);
+}
+
+async function setSceneThrusterScaleForProfile(sceneId, shipName, scale) {
+    const profileName = String(shipName ?? "").trim();
+    if (!profileName) return;
+
+    const profiles = getSceneThrusterProfiles();
+    const key = getSceneThrusterProfileKey(sceneId, profileName);
+    profiles[key] = {
+        ...(profiles[key] ?? {}),
+        sceneId: sceneId || "global",
+        name: profileName,
+        scale: clampNumber(Number(scale), -10, 10, 0)
     };
     await game.settings.set(MODULE_ID, SCENE_THRUSTER_PROFILES_SETTING, profiles);
 }
