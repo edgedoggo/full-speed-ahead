@@ -78,6 +78,13 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
             vehicleOpsScansEnabled: safeGetModuleSetting("vehicleOpsScansEnabled", true),
             vehicleOpsRepairCostPerHp: safeGetModuleSetting("vehicleOpsRepairCostPerHp", 100),
             vehicleOpsRepairCostPerShieldPoint: safeGetModuleSetting("vehicleOpsRepairCostPerShieldPoint", 100),
+            vehicleOpsShipUpkeepPercent: getSharedEconomyPercent(["shipUpkeepPercent"], "vehicleOpsShipUpkeepPercent", 0.2, ["getShipUpkeepPercent"]),
+            vehicleOpsGlaxonPremiumPercent: getSharedEconomyPercent(
+                ["glaxonInsurancePremiumPercent", "shipInsurancePremiumPercent", "insurancePremiumPercent"],
+                "vehicleOpsGlaxonPremiumPercent",
+                5,
+                ["getGlaxonInsurancePremiumPercent", "getShipInsurancePremiumPercent", "getInsurancePremiumPercent"]
+            ),
             vehicleOpsTokenMagicDamage: safeGetModuleSetting("vehicleOpsTokenMagicDamage", true),
             vehicleOpsItemPilesJettison: safeGetModuleSetting("vehicleOpsItemPilesJettison", true),
             displayModes: [
@@ -134,6 +141,13 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
         await safeSetModuleSetting("vehicleOpsScansEnabled", Boolean(formData.vehicleOpsScansEnabled));
         await safeSetModuleSetting("vehicleOpsRepairCostPerHp", Math.max(0, Number(formData.vehicleOpsRepairCostPerHp || 0)));
         await safeSetModuleSetting("vehicleOpsRepairCostPerShieldPoint", Math.max(0, Number(formData.vehicleOpsRepairCostPerShieldPoint || 0)));
+        await setSharedEconomyPercent(["shipUpkeepPercent"], "vehicleOpsShipUpkeepPercent", formData.vehicleOpsShipUpkeepPercent, 0.2);
+        await setSharedEconomyPercent(
+            ["glaxonInsurancePremiumPercent", "shipInsurancePremiumPercent", "insurancePremiumPercent"],
+            "vehicleOpsGlaxonPremiumPercent",
+            formData.vehicleOpsGlaxonPremiumPercent,
+            5
+        );
         await safeSetModuleSetting("vehicleOpsTokenMagicDamage", Boolean(formData.vehicleOpsTokenMagicDamage));
         await safeSetModuleSetting("vehicleOpsItemPilesJettison", Boolean(formData.vehicleOpsItemPilesJettison));
         ui.combat?.render(true);
@@ -278,6 +292,36 @@ async function safeSetModuleSetting(key, value) {
         await game.settings.set(MODULE_ID, key, value);
     } catch (_error) {
         // Vehicle Operations may not have registered yet during unusual module load ordering.
+    }
+}
+
+function tradeHubSettingExists(key) {
+    return Boolean(game.modules?.get("tradehub-markets")?.active && game.settings?.settings?.has?.(`tradehub-markets.${key}`));
+}
+
+function getSharedEconomyPercent(tradeHubKeys, fsaKey, fallback, tradeHubGetters = []) {
+    const getterName = tradeHubGetters.find(name => typeof game.tradehub?.[name] === "function");
+    if (getterName) return Math.max(0, Number(game.tradehub[getterName]() ?? fallback));
+    const tradeHubKey = tradeHubKeys.find(tradeHubSettingExists);
+    if (tradeHubKey) {
+        try {
+            return Math.max(0, Number(game.settings.get("tradehub-markets", tradeHubKey) ?? fallback));
+        } catch (_error) {
+            return fallback;
+        }
+    }
+    return Math.max(0, Number(safeGetModuleSetting(fsaKey, fallback) ?? fallback));
+}
+
+async function setSharedEconomyPercent(tradeHubKeys, fsaKey, rawValue, fallback) {
+    const value = Math.max(0, Number(rawValue ?? fallback));
+    await safeSetModuleSetting(fsaKey, value);
+    const tradeHubKey = tradeHubKeys.find(tradeHubSettingExists);
+    if (!tradeHubKey) return;
+    try {
+        await game.settings.set("tradehub-markets", tradeHubKey, value);
+    } catch (_error) {
+        // If TradeHub does not allow writes, FSA's fallback remains available.
     }
 }
 

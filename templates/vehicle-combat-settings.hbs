@@ -81,6 +81,18 @@
     </div>
 
     <div class="form-group">
+        <label>Ship Long Rest Upkeep Percentage</label>
+        <input type="number" name="vehicleOpsShipUpkeepPercent" value="{{vehicleOpsShipUpkeepPercent}}" min="0" step="0.01">
+        <p class="notes">Percentage of total ship cost billed for each vehicle long rest. Enter 0.2 for 0.2%, 2 for 2%, etc. When TradeHub Markets exposes this setting, FSA reads and writes TradeHub's value.</p>
+    </div>
+
+    <div class="form-group">
+        <label>Glaxon Insurance Premium Percentage</label>
+        <input type="number" name="vehicleOpsGlaxonPremiumPercent" value="{{vehicleOpsGlaxonPremiumPercent}}" min="0" step="0.01">
+        <p class="notes">Percentage of full repair value billed as the insured long-rest premium. When TradeHub Markets exposes an insurance premium setting or calculator, FSA reads and writes that shared value.</p>
+    </div>
+
+    <div class="form-group">
         <label>Use TokenMagic Damage Bursts</label>
         <input type="checkbox" name="vehicleOpsTokenMagicDamage" {{checked vehicleOpsTokenMagicDamage}}>
         <p class="notes">If TokenMagic FX is installed, show splash damage filters when vehicle modules take damage.</p>

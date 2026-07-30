@@ -158,6 +158,83 @@ class TradeHubIntegrationAdapter {
         return Number(this.setting("repairCostPerShieldPoint", game.settings.get(FSA_MODULE_ID, "vehicleOpsRepairCostPerShieldPoint")) || 0);
     }
 
+    static tradeHubSettingExists(key) {
+        return this.isAvailable() && Boolean(game.settings?.settings?.has?.(`tradehub-markets.${key}`));
+    }
+
+    static numberSetting(key, fallback) {
+        return Math.max(0, Number(this.setting(key, fallback) ?? fallback));
+    }
+
+    static shipUpkeepPercent() {
+        const getter = game.tradehub?.getShipUpkeepPercent;
+        if (typeof getter === "function") return Math.max(0, Number(getter.call(game.tradehub) ?? 0.2));
+        if (this.tradeHubSettingExists("shipUpkeepPercent")) return this.numberSetting("shipUpkeepPercent", 0.2);
+        return Math.max(0, Number(game.settings.get(FSA_MODULE_ID, "vehicleOpsShipUpkeepPercent") ?? 0.2));
+    }
+
+    static calculateShipUpkeep(totalShipValue) {
+        const calculate = game.tradehub?.calculateShipUpkeep;
+        if (typeof calculate === "function") return Math.max(0, Number(calculate.call(game.tradehub, totalShipValue) || 0));
+        return this.calculateShipUpkeepFromPercent(totalShipValue);
+    }
+
+    static calculateShipUpkeepFromPercent(totalShipValue) {
+        return Math.floor(Math.max(0, Number(totalShipValue || 0)) * this.shipUpkeepPercent() / 100);
+    }
+
+    static async setShipUpkeepPercent(value) {
+        const percent = Math.max(0, Number(value ?? 0.2));
+        if (this.tradeHubSettingExists("shipUpkeepPercent")) {
+            await game.settings.set("tradehub-markets", "shipUpkeepPercent", percent);
+        }
+        await game.settings.set(FSA_MODULE_ID, "vehicleOpsShipUpkeepPercent", percent);
+        return this.shipUpkeepPercent();
+    }
+
+    static glaxonInsurancePremiumPercent() {
+        const getters = [
+            game.tradehub?.getGlaxonInsurancePremiumPercent,
+            game.tradehub?.getShipInsurancePremiumPercent,
+            game.tradehub?.getInsurancePremiumPercent
+        ];
+        const getter = getters.find(method => typeof method === "function");
+        if (getter) return Math.max(0, Number(getter.call(game.tradehub) ?? 5));
+
+        const settingKeys = ["glaxonInsurancePremiumPercent", "shipInsurancePremiumPercent", "insurancePremiumPercent"];
+        const key = settingKeys.find(settingKey => this.tradeHubSettingExists(settingKey));
+        if (key) return this.numberSetting(key, 5);
+        return Math.max(0, Number(game.settings.get(FSA_MODULE_ID, "vehicleOpsGlaxonPremiumPercent") ?? 5));
+    }
+
+    static glaxonPremiumSettingKey() {
+        const settingKeys = ["glaxonInsurancePremiumPercent", "shipInsurancePremiumPercent", "insurancePremiumPercent"];
+        return settingKeys.find(settingKey => this.tradeHubSettingExists(settingKey)) || null;
+    }
+
+    static async setGlaxonInsurancePremiumPercent(value) {
+        const percent = Math.max(0, Number(value ?? 5));
+        const tradeHubKey = this.glaxonPremiumSettingKey();
+        if (tradeHubKey) await game.settings.set("tradehub-markets", tradeHubKey, percent);
+        await game.settings.set(FSA_MODULE_ID, "vehicleOpsGlaxonPremiumPercent", percent);
+        return this.glaxonInsurancePremiumPercent();
+    }
+
+    static calculateGlaxonInsurancePremium(totalRepairValue) {
+        const calculators = [
+            game.tradehub?.calculateGlaxonInsurancePremium,
+            game.tradehub?.calculateShipInsurancePremium,
+            game.tradehub?.calculateInsurancePremium
+        ];
+        const calculate = calculators.find(method => typeof method === "function");
+        if (calculate) return Math.max(0, Number(calculate.call(game.tradehub, totalRepairValue) || 0));
+        return this.calculateGlaxonInsurancePremiumFromPercent(totalRepairValue);
+    }
+
+    static calculateGlaxonInsurancePremiumFromPercent(totalRepairValue) {
+        return Math.ceil(Math.max(0, Number(totalRepairValue || 0)) * this.glaxonInsurancePremiumPercent() / 100);
+    }
+
     static isGlaxonInsured(actor) {
         return actor?.getFlag?.("tradehub-markets", FSA_GLAXON_FLAG) === true || actor?.getFlag?.(FSA_MODULE_ID, FSA_GLAXON_FLAG) === true;
     }
@@ -424,16 +501,17 @@ class VehicleModuleService {
 
     static async enableModulesForPowerCoreRestore(actor) {
         if (!actor || actor.type !== "vehicle") return;
-        const updates = Array.from(actor.items ?? [])
-            .filter(item => this.isShipModuleItem(item) && this.itemHp(item) > 0)
-            .map(item => ({
+        const modulesToEquip = Array.from(actor.items ?? [])
+            .filter(item => this.isShipModuleItem(item) && this.itemHp(item) > 0);
+        const restoredHpTotal = modulesToEquip.reduce((sum, item) => sum + this.itemHp(item), 0);
+        const updates = modulesToEquip.map(item => ({
                 _id: item.id,
                 "system.equipped": true,
                 [`flags.${FSA_MODULE_ID}.${FSA_DESTROYED_FLAG}`]: false,
                 "flags.tradehub-markets.destroyedUnequipped": false
             }));
         if (updates.length) await actor.updateEmbeddedDocuments("Item", updates, { fullSpeedAheadVehicleOperation: true });
-        await this.syncVehicleHpFromModules(actor);
+        await actor.update({ "system.attributes.hp.value": restoredHpTotal }, { fullSpeedAheadVehicleOperation: true });
     }
 
     static currentModuleHpTotal(actor) {
@@ -465,7 +543,8 @@ class VehicleModuleService {
     }
 
     static upkeepCost(actor) {
-        return Math.floor(this.shipValue(actor) * 0.002);
+        const totalShipValue = this.shipValue(actor);
+        return TradeHubIntegrationAdapter.calculateShipUpkeep(totalShipValue);
     }
 
     static fullRepairValue(actor) {
@@ -474,7 +553,7 @@ class VehicleModuleService {
 
     static glaxonPremium(actor) {
         const value = this.fullRepairValue(actor);
-        return value > 0 ? Math.ceil(value * 0.05) : 0;
+        return TradeHubIntegrationAdapter.calculateGlaxonInsurancePremium(value);
     }
 
     static wantedCrew(actor) {
@@ -1127,6 +1206,7 @@ class VehicleSheetToolService {
         const cost = VehicleModuleService.registrationCost(actor);
         const insured = TradeHubIntegrationAdapter.isGlaxonInsured(actor);
         const premium = VehicleModuleService.glaxonPremium(actor);
+        const premiumPercent = TradeHubIntegrationAdapter.glaxonInsurancePremiumPercent();
         const fullValue = VehicleModuleService.fullRepairValue(actor);
         new Dialog({
             title: "Ship Registration",
@@ -1137,7 +1217,7 @@ class VehicleSheetToolService {
                 <p><strong>Cost:</strong> ${formatGp(cost)}</p>
                 <hr>
                 <p><strong>Glaxon Insurance:</strong> ${insured ? `<span class="fsa-green">Active</span>` : "Not insured"}<br>
-                Insure my vehicle at a base premium of 5% total repair value per long rest.<br>
+                Insure my vehicle at a base premium of ${Number(premiumPercent).toLocaleString()}% total repair value per long rest.<br>
                 <strong>Benefit:</strong> 50% off eligible repair costs while insured.<br>
                 <strong>Full Repair Value:</strong> ${formatGp(fullValue)}<br>
                 <strong>Premium per Long Rest:</strong> ${formatGp(premium)}</p>
@@ -1654,6 +1734,88 @@ class FullSpeedAheadSharedCapitalConfig extends FormApplication {
     }
 }
 
+class FullSpeedAheadBankingDialog {
+    static show() {
+        if (!game.user?.isGM) return ui.notifications.error("Only the GM can edit shared capital.");
+
+        const capital = Math.floor(TradeHubIntegrationAdapter.capital());
+        const playerActors = game.actors.contents
+            .filter(actor => actor?.hasPlayerOwner && actor.type !== "vehicle")
+            .sort((a, b) => a.name.localeCompare(b.name));
+        const playerOptions = playerActors
+            .map(actor => `<option value="${actor.id}">${escapeHtml(actor.name)}</option>`)
+            .join("");
+        const content = `<div class="fsa-shared-capital fsa-banking-dialog">
+            <section class="fsa-capital-card">
+                <div class="fsa-capital-title">TradeHub Capital</div>
+                <div class="fsa-capital-balance">${formatGp(capital)}</div>
+            </section>
+            <div class="fsa-banking-grid">
+                <label for="fsa-bank-value">Enter Value:</label>
+                <input type="number" id="fsa-bank-value" name="bank-value" placeholder="+100, -50, etc.">
+                <label for="fsa-bank-replace">Replace total:</label>
+                <input type="checkbox" id="fsa-bank-replace" name="replace-total">
+                <label for="fsa-player-withdrawal">Player withdrawal:</label>
+                <input type="checkbox" id="fsa-player-withdrawal" name="player-withdrawal">
+                <label for="fsa-player-select">Select Player:</label>
+                <select id="fsa-player-select" name="player-select" disabled>${playerOptions}</select>
+            </div>
+        </div>`;
+
+        new Dialog({
+            title: "FSA Banking",
+            content,
+            buttons: {
+                save: {
+                    label: "Save",
+                    callback: html => this.save(html, capital)
+                },
+                cancel: { label: "Cancel" }
+            },
+            default: "save",
+            render: html => {
+                html.find("#fsa-player-withdrawal").on("change", event => {
+                    html.find("#fsa-player-select").prop("disabled", !event.currentTarget.checked);
+                });
+            }
+        }, { width: 540 }).render(true);
+    }
+
+    static async save(html, currentCapital) {
+        const raw = String(html.find("#fsa-bank-value").val() || "").trim();
+        const value = parseInt(raw, 10);
+        if (Number.isNaN(value)) return ui.notifications.error("Invalid input. Please enter a valid number.");
+
+        const replace = html.find("#fsa-bank-replace").prop("checked");
+        const playerWithdrawal = html.find("#fsa-player-withdrawal").prop("checked");
+        const selectedPlayerId = html.find("#fsa-player-select").val();
+        const nextCapital = replace ? value : currentCapital + value;
+        if (nextCapital < 0) return ui.notifications.error("Shared capital cannot go below 0.");
+
+        await TradeHubIntegrationAdapter.setCapital(nextCapital);
+
+        let messageContent;
+        if (replace) {
+            messageContent = `<b>${formatGp(nextCapital)} has been set as TradeHub Capital.</b><br>TradeHub Capital: ${formatGp(nextCapital)}`;
+        } else {
+            const action = value > 0 ? "added to" : "withdrawn from";
+            messageContent = `<b>${formatGp(Math.abs(value))} has been ${action} TradeHub Capital.</b><br>TradeHub Capital: ${formatGp(nextCapital)}`;
+            if (playerWithdrawal && value < 0 && selectedPlayerId) {
+                const playerActor = game.actors.get(selectedPlayerId);
+                if (playerActor) {
+                    const playerCash = Number(playerActor.system?.currency?.gp || 0) + Math.abs(value);
+                    await playerActor.update({ "system.currency.gp": playerCash });
+                    messageContent += `<br><b>Withdrew ${formatGp(Math.abs(value))} from TradeHub Capital to ${escapeHtml(playerActor.name)}.</b>`;
+                }
+            }
+        }
+
+        await VehicleChatCardService.create({ speaker: { alias: "Full Speed Ahead Banking" }, content: messageContent });
+        ui.notifications.info(`Shared capital updated to ${formatGp(TradeHubIntegrationAdapter.capital())}.`);
+        refreshSharedCapitalInterfaces({ broadcast: true });
+    }
+}
+
 class VehicleSheetButtonsConfig extends FormApplication {
     static get defaultOptions() {
         return foundry.utils.mergeObject(super.defaultOptions, {
@@ -1685,6 +1847,7 @@ class FullSpeedAheadFloatingMenu {
         if (document.getElementById(this.id)) return;
         if (!canShowFsaFloatingMenu()) return;
 
+        const showWallet = !isTradeHubMarketsDetected();
         const pos = game.settings.get(FSA_MODULE_ID, "vehicleOpsFloatingMenuPosition") || { left: 14, top: 125 };
         const menu = document.createElement("div");
         menu.id = this.id;
@@ -1699,6 +1862,7 @@ class FullSpeedAheadFloatingMenu {
                 <button type="button" data-tab="repair" title="Repair" aria-label="Repair"><i class="fas fa-wrench"></i></button>
                 <button type="button" data-tab="fuel" title="Fuel Scooping" aria-label="Fuel Scooping"><i class="fas fa-gas-pump"></i></button>
                 <button type="button" data-tab="mining" title="Mining" aria-label="Mining"><i class="fas fa-gem"></i></button>
+                ${showWallet ? `<button type="button" data-action="banking" title="FSA Banking" aria-label="FSA Banking"><i class="fas fa-wallet"></i></button>` : ""}
                 <button type="button" data-action="settings" title="Full Speed Ahead Settings" aria-label="Full Speed Ahead Settings"><i class="fas fa-cog"></i></button>
             </div>`;
         document.body.appendChild(menu);
@@ -1712,6 +1876,10 @@ class FullSpeedAheadFloatingMenu {
         menu.querySelector('[data-action="settings"]')?.addEventListener("click", event => {
             event.preventDefault();
             VehicleOperationsApplication.openSettings();
+        });
+        menu.querySelector('[data-action="banking"]')?.addEventListener("click", event => {
+            event.preventDefault();
+            FullSpeedAheadBankingDialog.show();
         });
 
         let dragging = null;
@@ -1738,6 +1906,10 @@ class FullSpeedAheadFloatingMenu {
     }
 }
 
+function isTradeHubMarketsDetected() {
+    return Boolean(game.modules?.get("tradehub-markets"));
+}
+
 Hooks.once("init", () => {
     registerVehicleOpsSettings();
 });
@@ -1752,6 +1924,15 @@ Hooks.once("ready", () => {
         renderFloatingMenu: () => FullSpeedAheadFloatingMenu.render(),
         closeFloatingMenu: () => FullSpeedAheadFloatingMenu.close()
     };
+    game.fullSpeedAhead.getShipUpkeepPercent = () => TradeHubIntegrationAdapter.shipUpkeepPercent();
+    game.fullSpeedAhead.setShipUpkeepPercent = value => TradeHubIntegrationAdapter.setShipUpkeepPercent(value);
+    game.fullSpeedAhead.calculateShipUpkeep = totalShipValue => TradeHubIntegrationAdapter.calculateShipUpkeepFromPercent(totalShipValue);
+    game.fullSpeedAhead.getGlaxonInsurancePremiumPercent = () => TradeHubIntegrationAdapter.glaxonInsurancePremiumPercent();
+    game.fullSpeedAhead.setGlaxonInsurancePremiumPercent = value => TradeHubIntegrationAdapter.setGlaxonInsurancePremiumPercent(value);
+    game.fullSpeedAhead.calculateGlaxonInsurancePremium = totalRepairValue => TradeHubIntegrationAdapter.calculateGlaxonInsurancePremiumFromPercent(totalRepairValue);
+    game.fullSpeedAhead.getShipInsurancePremiumPercent = game.fullSpeedAhead.getGlaxonInsurancePremiumPercent;
+    game.fullSpeedAhead.setShipInsurancePremiumPercent = game.fullSpeedAhead.setGlaxonInsurancePremiumPercent;
+    game.fullSpeedAhead.calculateShipInsurancePremium = game.fullSpeedAhead.calculateGlaxonInsurancePremium;
     game.fullSpeedAhead.openVehicleOperations = tab => VehicleOperationsApplication.open(tab);
     game.fullSpeedAhead.openVehicleSheetButtonsSettings = () => new VehicleSheetButtonsConfig().render(true);
     game.fullSpeedAhead.openSharedCapitalSettings = () => new FullSpeedAheadSharedCapitalConfig().render(true);
@@ -2016,6 +2197,8 @@ function registerVehicleOpsSettings() {
     register("vehicleOpsScansEnabled", { name: "Enable Vehicle Operation Scans", hint: "Allow Tactical, Manifest, and Wake scans from the vehicle operations window.", type: Boolean, default: true, config: false });
     register("vehicleOpsRepairCostPerHp", { name: "Fallback Repair Cost Per Module HP", hint: "Used when TradeHub is unavailable or does not expose a repair HP cost.", type: Number, default: 100, config: false });
     register("vehicleOpsRepairCostPerShieldPoint", { name: "Fallback Repair Cost Per Shield HP", hint: "Used when TradeHub is unavailable or does not expose a shield repair HP cost.", type: Number, default: 100, config: false });
+    register("vehicleOpsShipUpkeepPercent", { name: "Fallback Ship Long Rest Upkeep Percentage", hint: "Used when TradeHub is unavailable or does not expose shipUpkeepPercent/calculateShipUpkeep. Enter 0.2 for 0.2%.", type: Number, default: 0.2, config: false });
+    register("vehicleOpsGlaxonPremiumPercent", { name: "Fallback Glaxon Insurance Premium Percentage", hint: "Used when TradeHub is unavailable or does not expose a Glaxon insurance premium setting/calculator. Enter 5 for 5%.", type: Number, default: 5, config: false });
     register("vehicleOpsTokenMagicDamage", { name: "Use TokenMagic Damage Bursts", hint: "If TokenMagic FX is installed, show splash damage filters when vehicle modules take damage.", type: Boolean, default: true, config: false });
     register("vehicleOpsItemPilesJettison", { name: "Use Item Piles for Cargo Jettison", hint: "If Item Piles is installed, create cargo piles near the vehicle when Cargo Bay failure jettisons cargo.", type: Boolean, default: true, config: false });
 }
