@@ -146,6 +146,18 @@
     padding-bottom: 10px;
 }
 
+#full-speed-ahead-effects-config .window-content {
+    display: flex;
+    flex-direction: column;
+}
+
+#full-speed-ahead-effects-config form {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 100%;
+}
+
 #full-speed-ahead-effects-config nav.tabs {
     border-bottom: 1px solid rgba(80, 80, 72, 0.55);
     gap: 10px;
@@ -156,6 +168,15 @@
 #full-speed-ahead-effects-config nav.tabs .item {
     line-height: 1.3;
     padding: 4px 6px;
+}
+
+#full-speed-ahead-effects-config .fsa-effects-body {
+    flex: 1 1 auto;
+}
+
+#full-speed-ahead-effects-config .sheet-footer {
+    margin-top: auto;
+    padding-top: 8px;
 }
 
 #full-speed-ahead-targeting-cards-config nav.tabs {

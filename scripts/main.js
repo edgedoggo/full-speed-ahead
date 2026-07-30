@@ -1223,6 +1223,32 @@ function getThrusterScaleFactor(scale) {
     return normalized >= 0 ? 1 + normalized / 2 : 1 / (1 + Math.abs(normalized) / 2);
 }
 
+function getTokenTextureScale(token) {
+    const texture = token?.document?.texture ?? {};
+    const scaleX = Math.abs(Number(texture.scaleX ?? texture.scale ?? 1));
+    const scaleY = Math.abs(Number(texture.scaleY ?? texture.scale ?? 1));
+    const x = Number.isFinite(scaleX) && scaleX > 0 ? scaleX : 1;
+    const y = Number.isFinite(scaleY) && scaleY > 0 ? scaleY : 1;
+    return { x, y, average: (x + y) / 2 };
+}
+
+function getTokenVisualDimensions(token) {
+    const textureScale = getTokenTextureScale(token);
+    const gridSize = Number(canvas.grid?.size) || 100;
+    const tokenWidth = Number(token?.w) || (Number(token?.document?.width) || 1) * gridSize;
+    const tokenHeight = Number(token?.h) || (Number(token?.document?.height) || 1) * gridSize;
+    return {
+        width: Math.max(1, tokenWidth * textureScale.x),
+        height: Math.max(1, tokenHeight * textureScale.y),
+        scale: textureScale.average
+    };
+}
+
+function getTokenVisualHalfExtent(token, forwardX, forwardY) {
+    const dimensions = getTokenVisualDimensions(token);
+    return (Math.abs(forwardX) * dimensions.width + Math.abs(forwardY) * dimensions.height) / 2;
+}
+
 function playMovementSound(tokenDocument, userId) {
     if (userId && game.user.id !== userId) return;
 
@@ -1624,7 +1650,9 @@ function drawThrusterCone(graphics, token, rotation, dimensions = null) {
     const sideX = -forwardY;
     const sideY = forwardX;
     const scaleFactor = getThrusterScaleFactor(resolvedDimensions.scale);
-    const rearDistance = Math.max(0, Math.min(token.w, token.h) * 0.48 + resolvedDimensions.position * scaleFactor * canvas.grid.size);
+    const tokenVisualDimensions = getTokenVisualDimensions(token);
+    const designUnit = scaleFactor * canvas.grid.size * tokenVisualDimensions.scale;
+    const rearDistance = Math.max(0, getTokenVisualHalfExtent(token, forwardX, forwardY) * 0.96 + resolvedDimensions.position * designUnit);
     const rearX = centerX - forwardX * rearDistance;
     const rearY = centerY - forwardY * rearDistance;
 
@@ -1634,7 +1662,7 @@ function drawThrusterCone(graphics, token, rotation, dimensions = null) {
     const coneCount = Math.max(1, Math.min(3, resolvedDimensions.coneCount));
     for (let coneIndex = 0; coneIndex < coneCount; coneIndex++) {
         const cone = resolvedDimensions.cones[coneIndex] ?? resolvedDimensions.cones[0];
-        const offset = getThrusterConeOffset(coneIndex, coneCount) * resolvedDimensions.coneSpacing * scaleFactor * canvas.grid.size;
+        const offset = getThrusterConeOffset(coneIndex, coneCount) * resolvedDimensions.coneSpacing * designUnit;
         drawSingleThrusterCone(graphics, {
             rearX: rearX + sideX * offset,
             rearY: rearY + sideY * offset,
@@ -1642,8 +1670,8 @@ function drawThrusterCone(graphics, token, rotation, dimensions = null) {
             forwardY,
             sideX,
             sideY,
-            length: cone.length * scaleFactor * canvas.grid.size,
-            width: cone.width * scaleFactor * canvas.grid.size,
+            length: cone.length * designUnit,
+            width: cone.width * designUnit,
             color: hexToNumber(cone.color, 0x40c7ff),
             inverted: Boolean(cone.inverted)
         });
