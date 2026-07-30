@@ -332,6 +332,14 @@ class VehicleModuleService {
         return /shield generator/i.test(item?.name || "");
     }
 
+    static isPowerCore(item) {
+        return /power core/i.test(item?.name || "");
+    }
+
+    static powerCoreShutdownActive(actor) {
+        return Array.from(actor?.items ?? []).some(item => this.isShipModuleItem(item) && this.isPowerCore(item) && item?.system?.equipped !== true);
+    }
+
     static shieldModules(actor) {
         return Array.from(actor?.items ?? []).filter(item => this.isShipModuleItem(item) && this.isShield(item) && this.itemMaxHp(item) > 0);
     }
@@ -402,13 +410,26 @@ class VehicleModuleService {
         }, { fullSpeedAheadVehicleOperation: true });
     }
 
+    static async disableModulesForPowerCoreFailure(actor) {
+        if (!actor || actor.type !== "vehicle") return;
+        const updates = Array.from(actor.items ?? [])
+            .filter(item => this.isShipModuleItem(item))
+            .map(item => ({
+                _id: item.id,
+                "system.equipped": false
+            }));
+        if (updates.length) await actor.updateEmbeddedDocuments("Item", updates, { fullSpeedAheadVehicleOperation: true });
+        await actor.update({ "system.attributes.hp.value": 1 }, { fullSpeedAheadVehicleOperation: true });
+    }
+
     static currentModuleHpTotal(actor) {
         return this.damageableModules(actor).reduce((sum, item) => sum + Math.max(0, Math.min(this.itemHp(item), this.itemMaxHp(item))), 0);
     }
 
     static async syncVehicleHpFromModules(actor) {
         const modules = this.damageableModules(actor);
-        const total = modules.reduce((sum, item) => sum + this.itemHp(item), 0);
+        const moduleTotal = modules.reduce((sum, item) => sum + this.itemHp(item), 0);
+        const total = moduleTotal <= 0 && this.powerCoreShutdownActive(actor) ? 1 : moduleTotal;
         await actor.update({ "system.attributes.hp.value": total }, { fullSpeedAheadVehicleOperation: true });
         return total;
     }
@@ -771,6 +792,7 @@ class VehicleDamageService {
         await VehicleModuleService.updateModuleHp(module, after);
         const line = after <= 0 ? `<b>${escapeHtml(module.name)} hit for ${dealt} HP and is destroyed!</b>` : `${escapeHtml(module.name)} hit for ${dealt} HP`;
         (after <= 0 ? state.destroyed : state.details).push(line);
+        if (await this.handlePowerCoreShutdown(state, module, before, after)) return 0;
         if (!VehicleModuleService.isShield(module)) state.tokenDamageEffect = true;
         else if (before > 0 && after <= 0) await VehicleTokenEffectService.refresh(state.actor);
         if (before > 0 && after <= 0 && /cargo bay/i.test(module.name || "")) await this.handleCargoFailure(state, module.name, dealt);
@@ -798,8 +820,18 @@ class VehicleDamageService {
             state.tokenDamageEffect = true;
             const line = after <= 0 ? `<b>${escapeHtml(module.name)} hit for ${dealt} HP and is destroyed!</b>` : `${escapeHtml(module.name)} hit for ${dealt} HP`;
             (after <= 0 ? state.destroyed : state.details).push(line);
+            if (await this.handlePowerCoreShutdown(state, module, before, after)) break;
             if (before > 0 && after <= 0 && /cargo bay/i.test(module.name || "")) await this.handleCargoFailure(state, module.name, dealt);
         }
+    }
+
+    static async handlePowerCoreShutdown(state, module, before, after) {
+        if (!(before > 0 && after <= 0 && VehicleModuleService.isPowerCore(module))) return false;
+        await VehicleModuleService.disableModulesForPowerCoreFailure(state.actor);
+        state.destroyed.push(`<b style="color:red;">Power Core offline!</b> All ship modules are unequipped. Vessel HP remains at 1 instead of dropping to 0.`);
+        state.tokenDamageEffect = true;
+        state.powerCoreShutdown = true;
+        return true;
     }
 
     static async handleCargoFailure(state, reason, amount) {
@@ -1752,11 +1784,28 @@ Hooks.on("createItem", (item, options, _userId) => {
 Hooks.on("deleteItem", (item, options, _userId) => {
     if (shouldScheduleVehicleModuleSync(item, options)) VehicleModuleService.scheduleStructuralSync(item.parent, "Module deleted");
 });
-Hooks.on("updateItem", (item, changes, options) => {
+Hooks.on("updateItem", async (item, changes, options) => {
+    if (await maybeHandleManualPowerCoreShutdown(item, changes, options)) return;
     if (!shouldScheduleVehicleModuleSync(item, options)) return;
     const relevant = ["system.equipped", "system.hp.max", "system.armor.value", "system.ac.value", "system.price", "system.price.value", "name"].some(path => foundry.utils.hasProperty(changes, path) || Object.prototype.hasOwnProperty.call(changes, path));
     if (relevant) VehicleModuleService.scheduleStructuralSync(item.parent, "Module changed");
 });
+
+async function maybeHandleManualPowerCoreShutdown(item, changes, options = {}) {
+    if (options?.fullSpeedAheadVehicleOperation) return false;
+    if (!game.user?.isGM || item?.parent?.type !== "vehicle") return false;
+    if (!VehicleModuleService.isShipModuleItem(item) || !VehicleModuleService.isPowerCore(item)) return false;
+
+    const equippedChanged = foundry.utils.hasProperty(changes, "system.equipped") || Object.prototype.hasOwnProperty.call(changes, "system.equipped");
+    const hpChanged = foundry.utils.hasProperty(changes, "system.hp.value") || Object.prototype.hasOwnProperty.call(changes, "system.hp.value");
+    const explicitlyUnequipped = equippedChanged && item.system?.equipped !== true;
+    const reducedToZero = hpChanged && VehicleModuleService.itemHp(item) <= 0;
+    if (!explicitlyUnequipped && !reducedToZero) return false;
+
+    await VehicleModuleService.disableModulesForPowerCoreFailure(item.parent);
+    ui.notifications.warn(`${item.parent.name} Power Core is offline. All modules were unequipped and vessel HP was held at 1.`);
+    return true;
+}
 
 function shouldScheduleVehicleModuleSync(item, options = {}) {
     if (options?.fullSpeedAheadVehicleOperation) return false;
