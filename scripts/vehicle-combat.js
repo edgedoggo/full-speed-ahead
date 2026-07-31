@@ -85,6 +85,8 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
                 5,
                 ["getGlaxonInsurancePremiumPercent", "getShipInsurancePremiumPercent", "getInsurancePremiumPercent"]
             ),
+            vehicleOpsInsuranceCodeRequired: safeGetModuleSetting("vehicleOpsInsuranceCodeRequired", false),
+            vehicleOpsInsuranceConfirmationCode: safeGetModuleSetting("vehicleOpsInsuranceConfirmationCode", ""),
             vehicleOpsTokenMagicDamage: safeGetModuleSetting("vehicleOpsTokenMagicDamage", true),
             vehicleOpsItemPilesJettison: safeGetModuleSetting("vehicleOpsItemPilesJettison", true),
             displayModes: [
@@ -148,6 +150,8 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
             formData.vehicleOpsGlaxonPremiumPercent,
             5
         );
+        await safeSetModuleSetting("vehicleOpsInsuranceCodeRequired", Boolean(formData.vehicleOpsInsuranceCodeRequired));
+        await safeSetModuleSetting("vehicleOpsInsuranceConfirmationCode", String(formData.vehicleOpsInsuranceConfirmationCode || "").trim());
         await safeSetModuleSetting("vehicleOpsTokenMagicDamage", Boolean(formData.vehicleOpsTokenMagicDamage));
         await safeSetModuleSetting("vehicleOpsItemPilesJettison", Boolean(formData.vehicleOpsItemPilesJettison));
         ui.combat?.render(true);

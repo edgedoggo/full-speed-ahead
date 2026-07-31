@@ -5,6 +5,7 @@ const FSA_SOCKET = `module.${FSA_MODULE_ID}`;
 const FSA_DESTROYED_FLAG = "destroyedUnequipped";
 const FSA_GLAXON_FLAG = "glaxonInsured";
 const FSA_GLAXON_MIGRATION_FLAG = "glaxonInsuranceMigrated";
+const FSA_POWER_CORE_OFFLINE_FLAG = "powerCoreOffline";
 const FSA_HEAT_SINK_CARD_SELECTOR = "[data-fsa-heat-sink], [data-fsa-heat-sink-no]";
 const FSA_STRUCTURAL_SYNC_DELAY_MS = 500;
 const FSA_DEFAULT_DATA = { pendingCarryover: {} };
@@ -156,6 +157,22 @@ class TradeHubIntegrationAdapter {
 
     static repairCostPerShieldPoint() {
         return Number(this.setting("repairCostPerShieldPoint", game.settings.get(FSA_MODULE_ID, "vehicleOpsRepairCostPerShieldPoint")) || 0);
+    }
+
+    static insuranceConfirmationRequired() {
+        return Boolean(game.settings.get(FSA_MODULE_ID, "vehicleOpsInsuranceCodeRequired"));
+    }
+
+    static insuranceConfirmationCode() {
+        return String(game.settings.get(FSA_MODULE_ID, "vehicleOpsInsuranceConfirmationCode") || "").trim();
+    }
+
+    static validateInsuranceConfirmationCode(code) {
+        if (!this.insuranceConfirmationRequired()) return true;
+        const expected = this.insuranceConfirmationCode();
+        if (!expected) throw new Error("Glaxon insurance confirmation is required, but no confirmation code has been configured.");
+        if (String(code || "").trim() !== expected) throw new Error("Invalid Glaxon insurance confirmation code.");
+        return true;
     }
 
     static tradeHubSettingExists(key) {
@@ -413,8 +430,12 @@ class VehicleModuleService {
         return /power core/i.test(item?.name || "");
     }
 
+    static hasOnlinePowerCore(actor) {
+        return Array.from(actor?.items ?? []).some(item => this.isShipModuleItem(item) && this.isPowerCore(item) && item?.system?.equipped === true && this.itemHp(item) > 0);
+    }
+
     static powerCoreShutdownActive(actor) {
-        return Array.from(actor?.items ?? []).some(item => this.isShipModuleItem(item) && this.isPowerCore(item) && item?.system?.equipped !== true);
+        return actor?.getFlag?.(FSA_MODULE_ID, FSA_POWER_CORE_OFFLINE_FLAG) === true || Array.from(actor?.items ?? []).some(item => this.isShipModuleItem(item) && this.isPowerCore(item) && item?.system?.equipped !== true);
     }
 
     static shieldModules(actor) {
@@ -496,7 +517,10 @@ class VehicleModuleService {
                 "system.equipped": false
             }));
         if (updates.length) await actor.updateEmbeddedDocuments("Item", updates, { fullSpeedAheadVehicleOperation: true });
-        await actor.update({ "system.attributes.hp.value": 1 }, { fullSpeedAheadVehicleOperation: true });
+        await actor.update({
+            "system.attributes.hp.value": 1,
+            [`flags.${FSA_MODULE_ID}.${FSA_POWER_CORE_OFFLINE_FLAG}`]: true
+        }, { fullSpeedAheadVehicleOperation: true });
     }
 
     static async enableModulesForPowerCoreRestore(actor) {
@@ -511,7 +535,10 @@ class VehicleModuleService {
                 "flags.tradehub-markets.destroyedUnequipped": false
             }));
         if (updates.length) await actor.updateEmbeddedDocuments("Item", updates, { fullSpeedAheadVehicleOperation: true });
-        await actor.update({ "system.attributes.hp.value": restoredHpTotal }, { fullSpeedAheadVehicleOperation: true });
+        await actor.update({
+            "system.attributes.hp.value": restoredHpTotal,
+            [`flags.${FSA_MODULE_ID}.${FSA_POWER_CORE_OFFLINE_FLAG}`]: false
+        }, { fullSpeedAheadVehicleOperation: true });
     }
 
     static currentModuleHpTotal(actor) {
@@ -1207,6 +1234,7 @@ class VehicleSheetToolService {
         const insured = TradeHubIntegrationAdapter.isGlaxonInsured(actor);
         const premium = VehicleModuleService.glaxonPremium(actor);
         const premiumPercent = TradeHubIntegrationAdapter.glaxonInsurancePremiumPercent();
+        const codeRequired = TradeHubIntegrationAdapter.insuranceConfirmationRequired();
         const fullValue = VehicleModuleService.fullRepairValue(actor);
         new Dialog({
             title: "Ship Registration",
@@ -1221,6 +1249,7 @@ class VehicleSheetToolService {
                 <strong>Benefit:</strong> 50% off eligible repair costs while insured.<br>
                 <strong>Full Repair Value:</strong> ${formatGp(fullValue)}<br>
                 <strong>Premium per Long Rest:</strong> ${formatGp(premium)}</p>
+                ${codeRequired && !insured ? `<label><strong>Insurance Confirmation Code:</strong></label><input type="password" id="fsa-insurance-code" autocomplete="off"><p class="notes">Ask the Glaxon representative for the confirmation code before subscribing.</p>` : ""}
             </div>`,
             buttons: {
                 pay: {
@@ -1233,7 +1262,10 @@ class VehicleSheetToolService {
                 },
                 insure: {
                     label: insured ? "Cancel Coverage" : "Insure My Vehicle",
-                    callback: () => VehicleOperationsSocketService.request("shipInsurance", { ...this.actorPayload(actor), insured: !insured })
+                    callback: html => {
+                        const code = !insured && codeRequired ? String(html.find("#fsa-insurance-code").val() || "") : "";
+                        VehicleOperationsSocketService.request("shipInsurance", { ...this.actorPayload(actor), insured: !insured, code });
+                    }
                 },
                 cancel: { label: "Cancel" }
             }
@@ -1399,6 +1431,7 @@ class VehicleSheetToolTransactions {
         const actor = this.resolveActor(payload);
         this.assertUserCanUse(actor, userId);
         const active = payload.insured !== false;
+        if (active) TradeHubIntegrationAdapter.validateInsuranceConfirmationCode(payload.code);
         await TradeHubIntegrationAdapter.setGlaxonInsured(actor, active);
         await VehicleChatCardService.create({
             user: userId,
@@ -1973,10 +2006,12 @@ Hooks.on("renderChatMessage", (message, html) => {
     });
 });
 
-Hooks.on("createItem", (item, options, _userId) => {
+Hooks.on("createItem", async (item, options, _userId) => {
+    if (await maybeHandlePowerCoreCreated(item, options)) return;
     if (shouldScheduleVehicleModuleSync(item, options)) VehicleModuleService.scheduleStructuralSync(item.parent, "Module created");
 });
-Hooks.on("deleteItem", (item, options, _userId) => {
+Hooks.on("deleteItem", async (item, options, _userId) => {
+    if (await maybeHandlePowerCoreDeleted(item, options)) return;
     if (shouldScheduleVehicleModuleSync(item, options)) VehicleModuleService.scheduleStructuralSync(item.parent, "Module deleted");
 });
 Hooks.on("updateItem", async (item, changes, options) => {
@@ -1985,6 +2020,37 @@ Hooks.on("updateItem", async (item, changes, options) => {
     const relevant = ["system.equipped", "system.hp.max", "system.armor.value", "system.ac.value", "system.price", "system.price.value", "name"].some(path => foundry.utils.hasProperty(changes, path) || Object.prototype.hasOwnProperty.call(changes, path));
     if (relevant) VehicleModuleService.scheduleStructuralSync(item.parent, "Module changed");
 });
+
+async function maybeHandlePowerCoreCreated(item, options = {}) {
+    if (options?.fullSpeedAheadVehicleOperation) return false;
+    if (!game.user?.isGM || item?.parent?.type !== "vehicle") return false;
+    if (!VehicleModuleService.isShipModuleItem(item) || !VehicleModuleService.isPowerCore(item)) return false;
+
+    if (VehicleModuleService.hasOnlinePowerCore(item.parent)) {
+        await VehicleModuleService.enableModulesForPowerCoreRestore(item.parent);
+        ui.notifications.info(`${item.parent.name} Power Core is online. Modules with HP above 0 were equipped.`);
+        return true;
+    }
+
+    await VehicleModuleService.disableModulesForPowerCoreFailure(item.parent);
+    ui.notifications.warn(`${item.parent.name} Power Core is present but offline. All modules were unequipped and vessel HP was held at 1.`);
+    return true;
+}
+
+async function maybeHandlePowerCoreDeleted(item, options = {}) {
+    if (options?.fullSpeedAheadVehicleOperation) return false;
+    if (!game.user?.isGM || item?.parent?.type !== "vehicle") return false;
+    if (!VehicleModuleService.isShipModuleItem(item) || !VehicleModuleService.isPowerCore(item)) return false;
+
+    if (VehicleModuleService.hasOnlinePowerCore(item.parent)) {
+        VehicleModuleService.scheduleStructuralSync(item.parent, "Power Core removed, backup online");
+        return true;
+    }
+
+    await VehicleModuleService.disableModulesForPowerCoreFailure(item.parent);
+    ui.notifications.warn(`${item.parent.name} Power Core was removed. All modules were unequipped and vessel HP was held at 1.`);
+    return true;
+}
 
 async function maybeHandleManualPowerCoreStateChange(item, changes, options = {}) {
     if (options?.fullSpeedAheadVehicleOperation) return false;
@@ -2199,6 +2265,8 @@ function registerVehicleOpsSettings() {
     register("vehicleOpsRepairCostPerShieldPoint", { name: "Fallback Repair Cost Per Shield HP", hint: "Used when TradeHub is unavailable or does not expose a shield repair HP cost.", type: Number, default: 100, config: false });
     register("vehicleOpsShipUpkeepPercent", { name: "Fallback Ship Long Rest Upkeep Percentage", hint: "Used when TradeHub is unavailable or does not expose shipUpkeepPercent/calculateShipUpkeep. Enter 0.2 for 0.2%.", type: Number, default: 0.2, config: false });
     register("vehicleOpsGlaxonPremiumPercent", { name: "Fallback Glaxon Insurance Premium Percentage", hint: "Used when TradeHub is unavailable or does not expose a Glaxon insurance premium setting/calculator. Enter 5 for 5%.", type: Number, default: 5, config: false });
+    register("vehicleOpsInsuranceCodeRequired", { name: "Require Glaxon Insurance Confirmation Code", hint: "Require a confirmation code before a vehicle can subscribe to Glaxon insurance.", type: Boolean, default: false, config: false });
+    register("vehicleOpsInsuranceConfirmationCode", { name: "Glaxon Insurance Confirmation Code", hint: "Code that must be entered when subscribing to Glaxon insurance if confirmation is required.", type: String, default: "", config: false });
     register("vehicleOpsTokenMagicDamage", { name: "Use TokenMagic Damage Bursts", hint: "If TokenMagic FX is installed, show splash damage filters when vehicle modules take damage.", type: Boolean, default: true, config: false });
     register("vehicleOpsItemPilesJettison", { name: "Use Item Piles for Cargo Jettison", hint: "If Item Piles is installed, create cargo piles near the vehicle when Cargo Bay failure jettisons cargo.", type: Boolean, default: true, config: false });
 }

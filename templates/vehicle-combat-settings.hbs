@@ -93,6 +93,18 @@
     </div>
 
     <div class="form-group">
+        <label>Require Glaxon Insurance Confirmation Code</label>
+        <input type="checkbox" name="vehicleOpsInsuranceCodeRequired" {{checked vehicleOpsInsuranceCodeRequired}}>
+        <p class="notes">When enabled, subscribing to Glaxon insurance requires a confirmation code from an NPC representative.</p>
+    </div>
+
+    <div class="form-group">
+        <label>Glaxon Insurance Confirmation Code</label>
+        <input type="text" name="vehicleOpsInsuranceConfirmationCode" value="{{vehicleOpsInsuranceConfirmationCode}}" autocomplete="off">
+        <p class="notes">Players must enter this exact code before new insurance coverage can be activated. Cancelling existing coverage does not require the code.</p>
+    </div>
+
+    <div class="form-group">
         <label>Use TokenMagic Damage Bursts</label>
         <input type="checkbox" name="vehicleOpsTokenMagicDamage" {{checked vehicleOpsTokenMagicDamage}}>
         <p class="notes">If TokenMagic FX is installed, show splash damage filters when vehicle modules take damage.</p>
