@@ -1249,7 +1249,7 @@ class VehicleSheetToolService {
                 <strong>Benefit:</strong> 50% off eligible repair costs while insured.<br>
                 <strong>Full Repair Value:</strong> ${formatGp(fullValue)}<br>
                 <strong>Premium per Long Rest:</strong> ${formatGp(premium)}</p>
-                ${codeRequired && !insured ? `<label><strong>Insurance Confirmation Code:</strong></label><input type="password" id="fsa-insurance-code" autocomplete="off"><p class="notes">Ask the Glaxon representative for the confirmation code before subscribing.</p>` : ""}
+                ${codeRequired && !insured ? `<label><strong>Insurance Confirmation Code:</strong></label><input type="password" id="fsa-insurance-code" autocomplete="off"><p class="notes">Please find a Glaxxon Insurance Rep to obtain a confirmation code.</p>` : ""}
             </div>`,
             buttons: {
                 pay: {
