@@ -29,7 +29,7 @@ const SHIELD_COLORS = {
 };
 const MORPHOGENETIC_COLORS = { primary: 0x9b4dff, secondary: 0xe2b7ff };
 const PROTECTION_OUTLINE_FRAGMENT = `
-precision mediump float;
+precision highp float;
 
 varying vec2 vTextureCoord;
 uniform sampler2D uSampler;
@@ -50,61 +50,62 @@ float alphaAtRadius(float radius) {
     vec2 halfDiag = offset * 0.38268343;
     float a = 0.0;
 
-    a = max(a, sampleAlpha(vTextureCoord + vec2(offset.x, 0.0)));
-    a = max(a, sampleAlpha(vTextureCoord + vec2(-offset.x, 0.0)));
-    a = max(a, sampleAlpha(vTextureCoord + vec2(0.0, offset.y)));
-    a = max(a, sampleAlpha(vTextureCoord + vec2(0.0, -offset.y)));
-    a = max(a, sampleAlpha(vTextureCoord + diag));
-    a = max(a, sampleAlpha(vTextureCoord - diag));
-    a = max(a, sampleAlpha(vTextureCoord + vec2(diag.x, -diag.y)));
-    a = max(a, sampleAlpha(vTextureCoord + vec2(-diag.x, diag.y)));
-    a = max(a, sampleAlpha(vTextureCoord + vec2(offset.x, halfDiag.y)) * 0.82);
-    a = max(a, sampleAlpha(vTextureCoord + vec2(offset.x, -halfDiag.y)) * 0.82);
-    a = max(a, sampleAlpha(vTextureCoord + vec2(-offset.x, halfDiag.y)) * 0.82);
-    a = max(a, sampleAlpha(vTextureCoord + vec2(-offset.x, -halfDiag.y)) * 0.82);
-    a = max(a, sampleAlpha(vTextureCoord + vec2(halfDiag.x, offset.y)) * 0.82);
-    a = max(a, sampleAlpha(vTextureCoord + vec2(-halfDiag.x, offset.y)) * 0.82);
-    a = max(a, sampleAlpha(vTextureCoord + vec2(halfDiag.x, -offset.y)) * 0.82);
-    a = max(a, sampleAlpha(vTextureCoord + vec2(-halfDiag.x, -offset.y)) * 0.82);
+    a += sampleAlpha(vTextureCoord + vec2(offset.x, 0.0));
+    a += sampleAlpha(vTextureCoord + vec2(-offset.x, 0.0));
+    a += sampleAlpha(vTextureCoord + vec2(0.0, offset.y));
+    a += sampleAlpha(vTextureCoord + vec2(0.0, -offset.y));
+    a += sampleAlpha(vTextureCoord + diag);
+    a += sampleAlpha(vTextureCoord - diag);
+    a += sampleAlpha(vTextureCoord + vec2(diag.x, -diag.y));
+    a += sampleAlpha(vTextureCoord + vec2(-diag.x, diag.y));
+    a += sampleAlpha(vTextureCoord + vec2(offset.x, halfDiag.y)) * 0.82;
+    a += sampleAlpha(vTextureCoord + vec2(offset.x, -halfDiag.y)) * 0.82;
+    a += sampleAlpha(vTextureCoord + vec2(-offset.x, halfDiag.y)) * 0.82;
+    a += sampleAlpha(vTextureCoord + vec2(-offset.x, -halfDiag.y)) * 0.82;
+    a += sampleAlpha(vTextureCoord + vec2(halfDiag.x, offset.y)) * 0.82;
+    a += sampleAlpha(vTextureCoord + vec2(-halfDiag.x, offset.y)) * 0.82;
+    a += sampleAlpha(vTextureCoord + vec2(halfDiag.x, -offset.y)) * 0.82;
+    a += sampleAlpha(vTextureCoord + vec2(-halfDiag.x, -offset.y)) * 0.82;
 
-    return a;
-}
-
-float noise(vec2 p) {
-    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+    return a / 14.56;
 }
 
 void main(void) {
     vec4 base = texture2D(uSampler, vTextureCoord);
     float innerAlpha = 0.0;
     float outerAlpha = 0.0;
+    float innerWeight = 0.0;
+    float outerWeight = 0.0;
     float innerThickness = max(thickness, 1.0);
-    float outerThickness = innerThickness * 3.15;
+    float outerThickness = innerThickness * 3.45;
 
     for (int ring = 1; ring <= 28; ring++) {
         float radius = float(ring);
         if (radius <= outerThickness) {
             float sampled = alphaAtRadius(radius);
             if (radius <= innerThickness) {
-                float innerFalloff = pow(1.0 - ((radius - 1.0) / innerThickness), 0.9);
-                innerAlpha = max(innerAlpha, sampled * innerFalloff);
+                float innerFalloff = pow(1.0 - ((radius - 1.0) / innerThickness), 1.35);
+                innerAlpha += sampled * innerFalloff;
+                innerWeight += innerFalloff;
             }
-            float outerFalloff = pow(1.0 - ((radius - 1.0) / outerThickness), 1.75);
-            outerAlpha = max(outerAlpha, sampled * outerFalloff);
+            float outerFalloff = pow(1.0 - ((radius - 1.0) / outerThickness), 2.15);
+            outerAlpha += sampled * outerFalloff;
+            outerWeight += outerFalloff;
         }
     }
 
-    float outside = 1.0 - base.a;
-    float rim = smoothstep(0.04, 0.42, max(innerAlpha - base.a, 0.0)) * outside;
-    float aura = smoothstep(0.02, 0.72, max(outerAlpha - base.a, 0.0)) * outside;
-    float shimmer = 0.9 + 0.1 * sin((vTextureCoord.x * 29.0) + (vTextureCoord.y * 37.0) + (time * 1.65));
-    float grain = 0.94 + 0.06 * noise(floor(vTextureCoord * 96.0) + floor(time * 5.0));
-    aura *= shimmer * grain;
+    innerAlpha = innerWeight > 0.0 ? innerAlpha / innerWeight : 0.0;
+    outerAlpha = outerWeight > 0.0 ? outerAlpha / outerWeight : 0.0;
 
-    vec3 hotColor = mix(outlineColor.rgb, vec3(1.0), rim * 0.36);
-    float glowMix = clamp((rim * 0.72) + (aura * 0.18), 0.0, 1.0);
+    float outside = 1.0 - base.a;
+    float rim = smoothstep(0.05, 0.28, max(innerAlpha - (base.a * 0.35), 0.0)) * outside;
+    float aura = smoothstep(0.025, 0.3, max(outerAlpha - (base.a * 0.12), 0.0)) * outside;
+    float pulse = 0.92 + 0.08 * sin(time * 2.1);
+
+    vec3 hotColor = mix(outlineColor.rgb, vec3(1.0), rim * 0.18);
+    float glowMix = clamp((rim * 0.48) + (aura * 0.16), 0.0, 1.0);
     vec3 color = mix(base.rgb, hotColor, glowMix);
-    float glowAlpha = outlineColor.a * alpha * ((rim * 0.9) + (aura * 0.38));
+    float glowAlpha = outlineColor.a * alpha * pulse * ((rim * 0.58) + (aura * 0.5));
     gl_FragColor = vec4(color, max(base.a, glowAlpha));
 }
 `;

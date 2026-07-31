@@ -1,0 +1,19 @@
+<form autocomplete="off">
+    <p class="notes">Disable vehicle token dragging on large-scale scenes. When enabled, moving a vehicle token by drag is blocked and players are told to use a HyperDrive module to travel at that scale.</p>
+
+    {{#if hasScenes}}
+    <hr>
+    {{#each scenes}}
+    <div class="form-group">
+        <label>Disable vehicle drag on {{name}}{{#if navigation}} <span class="notes">(navigation)</span>{{/if}}</label>
+        <input type="checkbox" name="disableVehicleDragScene_{{id}}" {{checked disabled}}>
+    </div>
+    {{/each}}
+    {{else}}
+    <p class="notes">No scenes are available in this world.</p>
+    {{/if}}
+
+    <button type="submit">
+        <i class="fas fa-save"></i> Save
+    </button>
+</form>

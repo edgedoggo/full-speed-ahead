@@ -7,6 +7,7 @@ const THRUSTER_COLOR_FLAG = "thrusterColor";
 const SHIP_PROFILE_FLAG = "shipProfileName";
 const SHIP_PROFILES_SETTING = "shipProfiles";
 const SCENE_THRUSTER_PROFILES_SETTING = "sceneThrusterProfiles";
+const DISABLED_VEHICLE_DRAG_SCENES_SETTING = "disabledVehicleDragScenes";
 const DISABLED_TARGETING_CARD_ACTORS_SETTING = "disabledTargetingCardActors";
 const DISABLED_TARGETING_CARD_USERS_SETTING = "disabledTargetingCardUsers";
 const DISABLED_CHARACTER_CARD_USERS_SETTING = "disabledCharacterTargetingCardUsers";
@@ -32,6 +33,7 @@ const activeMotionEffects = new Map();
 const activeVehicleHovers = new Map();
 let activeThrusterPreview = null;
 let vehicleHoverTicker = null;
+let lastVehicleDragLockWarningAt = 0;
 
 class FullSpeedAheadEffectsConfig extends FormApplication {
     static get defaultOptions() {
@@ -445,6 +447,43 @@ class FullSpeedAheadCosmeticsConfig extends FormApplication {
     }
 }
 
+class FullSpeedAheadSceneDragConfig extends FormApplication {
+    static get defaultOptions() {
+        return foundry.utils.mergeObject(super.defaultOptions, {
+            id: "full-speed-ahead-scene-drag-config",
+            title: "Full Speed Ahead: Scene Movement Locks",
+            template: `modules/${MODULE_ID}/templates/scene-drag-settings.hbs`,
+            width: 560,
+            closeOnSubmit: true
+        });
+    }
+
+    getData() {
+        const disabledScenes = getDisabledVehicleDragScenes();
+        const scenes = Array.from(game.scenes ?? [])
+            .map(scene => ({
+                id: scene.id,
+                name: scene.name || "Unnamed Scene",
+                navigation: Boolean(scene.navigation),
+                disabled: Boolean(disabledScenes[scene.id])
+            }))
+            .sort((a, b) => Number(b.navigation) - Number(a.navigation) || a.name.localeCompare(b.name));
+
+        return {
+            scenes,
+            hasScenes: scenes.length > 0
+        };
+    }
+
+    async _updateObject(event, formData) {
+        const disabledScenes = {};
+        for (const scene of game.scenes ?? []) {
+            if (Boolean(formData[`disableVehicleDragScene_${scene.id}`])) disabledScenes[scene.id] = true;
+        }
+        await game.settings.set(MODULE_ID, DISABLED_VEHICLE_DRAG_SCENES_SETTING, disabledScenes);
+    }
+}
+
 class FullSpeedAheadHoverConfig extends FormApplication {
     static get defaultOptions() {
         return foundry.utils.mergeObject(super.defaultOptions, {
@@ -606,6 +645,15 @@ Hooks.once("init", () => {
         hint: "Configure non-vehicle and vehicle QuickTarget access, timeout behavior, and private helper chat cards.",
         icon: "fas fa-crosshairs",
         type: FullSpeedAheadTargetingCardsConfig,
+        restricted: true
+    });
+
+    game.settings.registerMenu(MODULE_ID, "sceneDragConfig", {
+        name: "Disable Vehicle Drag on Scene",
+        label: "Configure Scene Movement Locks",
+        hint: "Choose scenes where vehicle tokens cannot be dragged and must travel by HyperDrive module instead.",
+        icon: "fas fa-map-marked-alt",
+        type: FullSpeedAheadSceneDragConfig,
         restricted: true
     });
 
@@ -789,6 +837,14 @@ Hooks.once("init", () => {
         config: false
     });
 
+    registerSetting(DISABLED_VEHICLE_DRAG_SCENES_SETTING, {
+        name: "Scenes with Vehicle Drag Disabled",
+        hint: "Scene IDs where vehicle token dragging is blocked by Full Speed Ahead.",
+        type: Object,
+        default: {},
+        config: false
+    });
+
     registerSetting(DISABLED_TARGETING_CARD_ACTORS_SETTING, {
         name: "Disabled QuickTarget Chat Card Actors",
         hint: "Actor IDs whose players should not receive Full Speed Ahead QuickTarget attack option chat cards.",
@@ -869,6 +925,11 @@ Hooks.on("deleteToken", tokenDocument => {
 Hooks.on("preUpdateToken", (tokenDocument, changes, options, userId) => {
     if (options?.[INTERNAL_MOVE]) return;
     if (!isVehicleDocument(tokenDocument)) return;
+    if (hasMovement(changes) && isVehicleDragDisabledForScene(tokenDocument.parent)) {
+        warnVehicleDragDisabled();
+        return false;
+    }
+
     const rotationSettings = getRotationSettingsForTokenDocument(tokenDocument);
     if (!rotationSettings.enableShipRotation) return;
     if (!hasMovement(changes)) return;
@@ -1091,6 +1152,23 @@ function hasMovement(changes) {
     return Object.prototype.hasOwnProperty.call(changes, "x") || Object.prototype.hasOwnProperty.call(changes, "y");
 }
 
+function getDisabledVehicleDragScenes() {
+    return foundry.utils.deepClone(game.settings.get(MODULE_ID, DISABLED_VEHICLE_DRAG_SCENES_SETTING) ?? {});
+}
+
+function isVehicleDragDisabledForScene(scene) {
+    if (!scene?.id) return false;
+    const disabledScenes = getDisabledVehicleDragScenes();
+    return Boolean(disabledScenes[scene.id]);
+}
+
+function warnVehicleDragDisabled() {
+    const now = Date.now();
+    if (now - lastVehicleDragLockWarningAt < 1500) return;
+    lastVehicleDragLockWarningAt = now;
+    ui.notifications.warn("You must use a HyperDrive Module to Travel at this scale");
+}
+
 function getHeadingRotation(origin, destination) {
     const dx = destination.x - origin.x;
     const dy = destination.y - origin.y;
@@ -1182,6 +1260,7 @@ function openFullSpeedAheadPanel(panel) {
     if (panel === "effects") return new FullSpeedAheadEffectsConfig().render(true);
     if (panel === "cosmetics") return new FullSpeedAheadCosmeticsConfig().render(true);
     if (panel === "quicktarget") return new FullSpeedAheadTargetingCardsConfig().render(true);
+    if (panel === "scene-drag") return new FullSpeedAheadSceneDragConfig().render(true);
     if (panel === "combat") {
         const opened = game.fullSpeedAhead?.openVehicleCombatSettings?.();
         if (opened) return opened;
