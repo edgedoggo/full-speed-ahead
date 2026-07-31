@@ -12,7 +12,101 @@ const FSA_DEFAULT_DATA = { pendingCarryover: {} };
 const FSA_REPAIR_ACTIONS = new Set(["repair-module", "stabilize-module", "full-service", "pristine"]);
 const FSA_DAMAGE_CONTEXTS = new Set(["attack", "fuel", "mining"]);
 const fsaVehicleSyncTimers = new Map();
+const fsaPromptRegistry = new Map();
 let fsaSharedCapitalRefreshTimer = null;
+
+function fsaVehiclePromptKey(actor, suffix) {
+    return `vehicle:${actor?.uuid || actor?.id || actor?.name || "unknown"}:${suffix}`;
+}
+
+function focusFsaPrompt(app) {
+    try {
+        app?.bringToTop?.();
+        const element = app?.element;
+        if (!element?.length) return;
+        element[0].scrollIntoView?.({ block: "nearest", inline: "nearest" });
+        const target = element.find("input, select, textarea, button").filter(":visible").first();
+        (target[0] ?? element[0])?.focus?.();
+    } catch (_error) {
+        // Focusing is only a convenience; never let it interrupt the originating action.
+    }
+}
+
+function renderUniqueFsaDialog(key, data, options = {}) {
+    const existing = fsaPromptRegistry.get(key);
+    if (existing?.rendered) {
+        focusFsaPrompt(existing);
+        return existing;
+    }
+
+    const originalClose = data.close;
+    const dialog = new Dialog({
+        ...data,
+        close: (...args) => {
+            fsaPromptRegistry.delete(key);
+            return originalClose?.(...args);
+        }
+    }, options);
+    fsaPromptRegistry.set(key, dialog);
+    dialog.render(true);
+    return dialog;
+}
+
+function renderUniqueFsaApplication(key, createApp) {
+    const existing = fsaPromptRegistry.get(key);
+    if (existing?.rendered) {
+        focusFsaPrompt(existing);
+        return existing;
+    }
+
+    const app = createApp();
+    const originalClose = app.close.bind(app);
+    app.close = async function(options) {
+        fsaPromptRegistry.delete(key);
+        return originalClose(options);
+    };
+    fsaPromptRegistry.set(key, app);
+    app.render(true);
+    return app;
+}
+
+async function confirmUniqueFsaDialog(key, data, options = {}) {
+    const existing = fsaPromptRegistry.get(key);
+    if (existing?.rendered) {
+        focusFsaPrompt(existing);
+        return false;
+    }
+
+    return new Promise(resolve => {
+        let resolved = false;
+        renderUniqueFsaDialog(key, {
+            title: data.title,
+            content: data.content,
+            buttons: {
+                yes: {
+                    icon: data.yesIcon ?? '<i class="fas fa-check"></i>',
+                    label: data.yesLabel ?? "Yes",
+                    callback: html => {
+                        resolved = true;
+                        resolve(data.yes ? data.yes(html) : true);
+                    }
+                },
+                no: {
+                    icon: data.noIcon ?? '<i class="fas fa-times"></i>',
+                    label: data.noLabel ?? "No",
+                    callback: html => {
+                        resolved = true;
+                        resolve(data.no ? data.no(html) : false);
+                    }
+                }
+            },
+            default: data.defaultYes === false ? "no" : "yes",
+            close: () => {
+                if (!resolved) resolve(false);
+            }
+        }, options);
+    });
+}
 
 class TradeHubIntegrationAdapter {
     static isAvailable() {
@@ -163,6 +257,16 @@ class TradeHubIntegrationAdapter {
         return Boolean(game.settings.get(FSA_MODULE_ID, "vehicleOpsInsuranceCodeRequired"));
     }
 
+    static insuranceCompanyName() {
+        return String(game.settings.get(FSA_MODULE_ID, "vehicleOpsInsuranceCompanyName") || "Glaxxon Insurance").trim() || "Glaxxon Insurance";
+    }
+
+    static async setInsuranceCompanyName(name) {
+        const normalized = String(name || "Glaxxon Insurance").trim() || "Glaxxon Insurance";
+        await game.settings.set(FSA_MODULE_ID, "vehicleOpsInsuranceCompanyName", normalized);
+        return normalized;
+    }
+
     static insuranceConfirmationCode() {
         return String(game.settings.get(FSA_MODULE_ID, "vehicleOpsInsuranceConfirmationCode") || "").trim();
     }
@@ -170,8 +274,9 @@ class TradeHubIntegrationAdapter {
     static validateInsuranceConfirmationCode(code) {
         if (!this.insuranceConfirmationRequired()) return true;
         const expected = this.insuranceConfirmationCode();
-        if (!expected) throw new Error("Glaxon insurance confirmation is required, but no confirmation code has been configured.");
-        if (String(code || "").trim() !== expected) throw new Error("Invalid Glaxon insurance confirmation code.");
+        const companyName = this.insuranceCompanyName();
+        if (!expected) throw new Error(`${companyName} confirmation is required, but no confirmation code has been configured.`);
+        if (String(code || "").trim() !== expected) throw new Error(`Invalid ${companyName} confirmation code.`);
         return true;
     }
 
@@ -1215,7 +1320,7 @@ class VehicleSheetToolService {
         const insured = TradeHubIntegrationAdapter.isGlaxonInsured(actor);
         const premium = insured ? VehicleModuleService.glaxonPremium(actor) : 0;
         const total = upkeep + premium;
-        Dialog.confirm({
+        confirmUniqueFsaDialog(fsaVehiclePromptKey(actor, "long-rest"), {
             title: "Long Rest Confirmation",
             content: `<div class="fsa-chat-card fsa-center">
                 <p>When your vehicle takes a Long Rest, shields recharge and crew/item uses are restored.</p>
@@ -1223,7 +1328,6 @@ class VehicleSheetToolService {
                 <p><strong>Ship Value:</strong> ${formatGp(value)}<br><strong>Upkeep:</strong> ${formatGp(upkeep)}<br><strong>Glaxon Premium:</strong> ${insured ? formatGp(premium) : "Not insured"}<br><strong>Total Due:</strong> ${formatGp(total)}</p>
             </div>`,
             yes: () => VehicleOperationsSocketService.request("shipLongRest", this.actorPayload(actor)),
-            no: () => {},
             defaultYes: false
         });
     }
@@ -1235,8 +1339,9 @@ class VehicleSheetToolService {
         const premium = VehicleModuleService.glaxonPremium(actor);
         const premiumPercent = TradeHubIntegrationAdapter.glaxonInsurancePremiumPercent();
         const codeRequired = TradeHubIntegrationAdapter.insuranceConfirmationRequired();
+        const companyName = TradeHubIntegrationAdapter.insuranceCompanyName();
         const fullValue = VehicleModuleService.fullRepairValue(actor);
-        new Dialog({
+        renderUniqueFsaDialog(fsaVehiclePromptKey(actor, "registration"), {
             title: "Ship Registration",
             content: `<div class="fsa-chat-card">
                 <p>At any point, you can reregister your ship's designation. If any listed crew member is <strong>[Wanted]</strong>, the cost is doubled.</p>
@@ -1244,12 +1349,12 @@ class VehicleSheetToolService {
                 <input type="text" id="fsa-vessel-name" value="${escapeHtml(actor.name)}">
                 <p><strong>Cost:</strong> ${formatGp(cost)}</p>
                 <hr>
-                <p><strong>Glaxon Insurance:</strong> ${insured ? `<span class="fsa-green">Active</span>` : "Not insured"}<br>
+                <p><strong>${escapeHtml(companyName)}:</strong> ${insured ? `<span class="fsa-green">Active</span>` : "Not insured"}<br>
                 Insure my vehicle at a base premium of ${Number(premiumPercent).toLocaleString()}% total repair value per long rest.<br>
                 <strong>Benefit:</strong> 50% off eligible repair costs while insured.<br>
                 <strong>Full Repair Value:</strong> ${formatGp(fullValue)}<br>
                 <strong>Premium per Long Rest:</strong> ${formatGp(premium)}</p>
-                ${codeRequired && !insured ? `<label><strong>Insurance Confirmation Code:</strong></label><input type="password" id="fsa-insurance-code" autocomplete="off"><p class="notes">Please find a Glaxxon Insurance Rep to obtain a confirmation code.</p>` : ""}
+                ${codeRequired && !insured ? `<p class="notes">A confirmation code is required when you click Insure My Vehicle.</p>` : ""}
             </div>`,
             buttons: {
                 pay: {
@@ -1262,19 +1367,42 @@ class VehicleSheetToolService {
                 },
                 insure: {
                     label: insured ? "Cancel Coverage" : "Insure My Vehicle",
-                    callback: html => {
-                        const code = !insured && codeRequired ? String(html.find("#fsa-insurance-code").val() || "") : "";
-                        VehicleOperationsSocketService.request("shipInsurance", { ...this.actorPayload(actor), insured: !insured, code });
+                    callback: () => {
+                        if (!insured && codeRequired) return this.promptInsuranceCode(actor);
+                        VehicleOperationsSocketService.request("shipInsurance", { ...this.actorPayload(actor), insured: !insured, code: "" });
                     }
                 },
                 cancel: { label: "Cancel" }
             }
-        }, { width: 460 }).render(true);
+        }, { width: 460 });
+    }
+
+    static promptInsuranceCode(actor) {
+        const companyName = TradeHubIntegrationAdapter.insuranceCompanyName();
+        renderUniqueFsaDialog(fsaVehiclePromptKey(actor, "insurance-code"), {
+            title: `${companyName} Confirmation`,
+            content: `<div class="fsa-chat-card">
+                <p>Please find a ${escapeHtml(companyName)} Rep to obtain a confirmation code.</p>
+                <label><strong>Confirmation Code:</strong></label>
+                <input type="password" id="fsa-insurance-code" autocomplete="off">
+            </div>`,
+            buttons: {
+                confirm: {
+                    label: "Activate Coverage",
+                    callback: html => {
+                        const code = String(html.find("#fsa-insurance-code").val() || "");
+                        VehicleOperationsSocketService.request("shipInsurance", { ...this.actorPayload(actor), insured: true, code });
+                    }
+                },
+                cancel: { label: "Cancel" }
+            },
+            default: "confirm"
+        }, { width: 420 });
     }
 
     static showFuelRelease(actor) {
         if (!actor || actor.type !== "vehicle") return ui.notifications.error("Selected vehicle not found.");
-        new Dialog({
+        renderUniqueFsaDialog(fsaVehiclePromptKey(actor, "fuel-release"), {
             title: "Emergency Hydrogen Fuel Release",
             content: `<div class="fsa-chat-card">
                 <label>Hydrogen (tonnes):</label>
@@ -1287,11 +1415,10 @@ class VehicleSheetToolService {
                     callback: async html => {
                         const quantity = Number(html.find("#fsa-fuel-tonnes").val() || 0);
                         if (quantity < 0) return ui.notifications.error("Invalid value.");
-                        const confirmed = await Dialog.confirm({
+                        const confirmed = await confirmUniqueFsaDialog(fsaVehiclePromptKey(actor, "fuel-hazard"), {
                             title: "WARNING: HAZARDOUS OPERATION",
                             content: `<div style="color:red;font-weight:bold;">WARNING: DO NOT release hydrogen near heat or open flame. Contents under pressure.</div><p>Are you sure you want to proceed?</p>`,
                             yes: () => true,
-                            no: () => false,
                             defaultYes: false
                         });
                         if (confirmed) VehicleOperationsSocketService.request("shipFuelPurge", { ...this.actorPayload(actor), quantity });
@@ -1299,7 +1426,7 @@ class VehicleSheetToolService {
                 },
                 cancel: { label: "Cancel" }
             }
-        }, { width: 460 }).render(true);
+        }, { width: 460 });
     }
 
     static sheetHtml() {
@@ -1433,12 +1560,13 @@ class VehicleSheetToolTransactions {
         const active = payload.insured !== false;
         if (active) TradeHubIntegrationAdapter.validateInsuranceConfirmationCode(payload.code);
         await TradeHubIntegrationAdapter.setGlaxonInsured(actor, active);
+        const companyName = TradeHubIntegrationAdapter.insuranceCompanyName();
         await VehicleChatCardService.create({
             user: userId,
-            speaker: { alias: "Glaxon Insurance" },
+            speaker: { alias: companyName },
             content: active
-                ? `<strong>Glaxon Insurance Activated</strong><br><strong>${escapeHtml(actor.name)}</strong> now receives 50% off repair costs while insured.<br><strong>Premium per Long Rest:</strong> ${formatGp(VehicleModuleService.glaxonPremium(actor))}<br><strong>Full Repair Value:</strong> ${formatGp(VehicleModuleService.fullRepairValue(actor))}<br><em>Premiums are billed when the Long Rest button is used.</em>`
-                : `<strong>Glaxon Insurance Cancelled</strong><br><strong>${escapeHtml(actor.name)}</strong> no longer receives the Glaxon repair discount and will not be billed a Glaxon premium on Long Rest.`
+                ? `<strong>${escapeHtml(companyName)} Activated</strong><br><strong>${escapeHtml(actor.name)}</strong> now receives 50% off repair costs while insured.<br><strong>Premium per Long Rest:</strong> ${formatGp(VehicleModuleService.glaxonPremium(actor))}<br><strong>Full Repair Value:</strong> ${formatGp(VehicleModuleService.fullRepairValue(actor))}<br><em>Premiums are billed when the Long Rest button is used.</em>`
+                : `<strong>${escapeHtml(companyName)} Cancelled</strong><br><strong>${escapeHtml(actor.name)}</strong> no longer receives the insurance repair discount and will not be billed an insurance premium on Long Rest.`
         });
         refreshVehicleOperationInterfaces(actor);
     }
@@ -1833,7 +1961,7 @@ class FullSpeedAheadBankingDialog {
             </div>
         </div>`;
 
-        new Dialog({
+        renderUniqueFsaDialog("shared-capital-banking", {
             title: "FSA Banking",
             content,
             buttons: {
@@ -1849,7 +1977,7 @@ class FullSpeedAheadBankingDialog {
                     html.find("#fsa-player-select").prop("disabled", !event.currentTarget.checked);
                 });
             }
-        }, { width: 540 }).render(true);
+        }, { width: 540 });
     }
 
     static async save(html, currentCapital) {
@@ -2004,9 +2132,15 @@ Hooks.once("ready", () => {
     game.fullSpeedAhead.getShipInsurancePremiumPercent = game.fullSpeedAhead.getGlaxonInsurancePremiumPercent;
     game.fullSpeedAhead.setShipInsurancePremiumPercent = game.fullSpeedAhead.setGlaxonInsurancePremiumPercent;
     game.fullSpeedAhead.calculateShipInsurancePremium = game.fullSpeedAhead.calculateGlaxonInsurancePremium;
+    game.fullSpeedAhead.getInsuranceCompanyName = () => TradeHubIntegrationAdapter.insuranceCompanyName();
+    game.fullSpeedAhead.setInsuranceCompanyName = name => TradeHubIntegrationAdapter.setInsuranceCompanyName(name);
+    game.fullSpeedAhead.isInsuranceConfirmationRequired = () => TradeHubIntegrationAdapter.insuranceConfirmationRequired();
+    game.fullSpeedAhead.setInsuranceConfirmationRequired = required => game.settings.set(FSA_MODULE_ID, "vehicleOpsInsuranceCodeRequired", Boolean(required));
+    game.fullSpeedAhead.getInsuranceConfirmationCode = () => TradeHubIntegrationAdapter.insuranceConfirmationCode();
+    game.fullSpeedAhead.setInsuranceConfirmationCode = code => game.settings.set(FSA_MODULE_ID, "vehicleOpsInsuranceConfirmationCode", String(code || "").trim());
     game.fullSpeedAhead.openVehicleOperations = tab => VehicleOperationsApplication.open(tab);
-    game.fullSpeedAhead.openVehicleSheetButtonsSettings = () => new VehicleSheetButtonsConfig().render(true);
-    game.fullSpeedAhead.openSharedCapitalSettings = () => new FullSpeedAheadSharedCapitalConfig().render(true);
+    game.fullSpeedAhead.openVehicleSheetButtonsSettings = () => renderUniqueFsaApplication("vehicle-sheet-buttons-settings", () => new VehicleSheetButtonsConfig());
+    game.fullSpeedAhead.openSharedCapitalSettings = () => renderUniqueFsaApplication("shared-capital-settings", () => new FullSpeedAheadSharedCapitalConfig());
     installTradeHubCapitalRefreshBridge();
     FullSpeedAheadFloatingMenu.render();
 });
@@ -2303,6 +2437,7 @@ function registerVehicleOpsSettings() {
     register("vehicleOpsRepairCostPerShieldPoint", { name: "Fallback Repair Cost Per Shield HP", hint: "Used when TradeHub is unavailable or does not expose a shield repair HP cost.", type: Number, default: 100, config: false });
     register("vehicleOpsShipUpkeepPercent", { name: "Fallback Ship Long Rest Upkeep Percentage", hint: "Used when TradeHub is unavailable or does not expose shipUpkeepPercent/calculateShipUpkeep. Enter 0.2 for 0.2%.", type: Number, default: 0.2, config: false });
     register("vehicleOpsGlaxonPremiumPercent", { name: "Fallback Glaxon Insurance Premium Percentage", hint: "Used when TradeHub is unavailable or does not expose a Glaxon insurance premium setting/calculator. Enter 5 for 5%.", type: Number, default: 5, config: false });
+    register("vehicleOpsInsuranceCompanyName", { name: "Insurance Company Name", hint: "Displayed name for vehicle insurance in Full Speed Ahead.", type: String, default: "Glaxxon Insurance", config: false });
     register("vehicleOpsInsuranceCodeRequired", { name: "Require Glaxon Insurance Confirmation Code", hint: "Require a confirmation code before a vehicle can subscribe to Glaxon insurance.", type: Boolean, default: false, config: false });
     register("vehicleOpsInsuranceConfirmationCode", { name: "Glaxon Insurance Confirmation Code", hint: "Code that must be entered when subscribing to Glaxon insurance if confirmation is required.", type: String, default: "", config: false });
     register("vehicleOpsTokenMagicDamage", { name: "Use TokenMagic Damage Bursts", hint: "If TokenMagic FX is installed, show splash damage filters when vehicle modules take damage.", type: Boolean, default: true, config: false });

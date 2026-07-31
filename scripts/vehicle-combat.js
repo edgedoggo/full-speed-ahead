@@ -38,6 +38,11 @@ uniform vec2 texelSize;
 uniform float thickness;
 uniform float alpha;
 
+float sampleAlpha(vec2 coord) {
+    if (coord.x < 0.0 || coord.x > 1.0 || coord.y < 0.0 || coord.y > 1.0) return 0.0;
+    return texture2D(uSampler, coord).a;
+}
+
 void main(void) {
     vec4 base = texture2D(uSampler, vTextureCoord);
     float neighborAlpha = 0.0;
@@ -47,20 +52,21 @@ void main(void) {
         if (radius <= thickness) {
             vec2 offset = texelSize * radius;
             float falloff = 1.0 - ((radius - 1.0) / max(thickness, 1.0));
-            neighborAlpha = max(neighborAlpha, texture2D(uSampler, vTextureCoord + vec2(offset.x, 0.0)).a * falloff);
-            neighborAlpha = max(neighborAlpha, texture2D(uSampler, vTextureCoord + vec2(-offset.x, 0.0)).a * falloff);
-            neighborAlpha = max(neighborAlpha, texture2D(uSampler, vTextureCoord + vec2(0.0, offset.y)).a * falloff);
-            neighborAlpha = max(neighborAlpha, texture2D(uSampler, vTextureCoord + vec2(0.0, -offset.y)).a * falloff);
-            neighborAlpha = max(neighborAlpha, texture2D(uSampler, vTextureCoord + vec2(offset.x, offset.y)).a * falloff);
-            neighborAlpha = max(neighborAlpha, texture2D(uSampler, vTextureCoord + vec2(-offset.x, offset.y)).a * falloff);
-            neighborAlpha = max(neighborAlpha, texture2D(uSampler, vTextureCoord + vec2(offset.x, -offset.y)).a * falloff);
-            neighborAlpha = max(neighborAlpha, texture2D(uSampler, vTextureCoord + vec2(-offset.x, -offset.y)).a * falloff);
+            neighborAlpha = max(neighborAlpha, sampleAlpha(vTextureCoord + vec2(offset.x, 0.0)) * falloff);
+            neighborAlpha = max(neighborAlpha, sampleAlpha(vTextureCoord + vec2(-offset.x, 0.0)) * falloff);
+            neighborAlpha = max(neighborAlpha, sampleAlpha(vTextureCoord + vec2(0.0, offset.y)) * falloff);
+            neighborAlpha = max(neighborAlpha, sampleAlpha(vTextureCoord + vec2(0.0, -offset.y)) * falloff);
+            neighborAlpha = max(neighborAlpha, sampleAlpha(vTextureCoord + vec2(offset.x, offset.y)) * falloff);
+            neighborAlpha = max(neighborAlpha, sampleAlpha(vTextureCoord + vec2(-offset.x, offset.y)) * falloff);
+            neighborAlpha = max(neighborAlpha, sampleAlpha(vTextureCoord + vec2(offset.x, -offset.y)) * falloff);
+            neighborAlpha = max(neighborAlpha, sampleAlpha(vTextureCoord + vec2(-offset.x, -offset.y)) * falloff);
         }
     }
 
     float outline = max(neighborAlpha - base.a, 0.0);
     float glow = smoothstep(0.0, 0.7, outline) * (1.0 - base.a);
-    gl_FragColor = vec4(outlineColor.rgb, outlineColor.a * alpha * glow);
+    vec3 color = mix(base.rgb, outlineColor.rgb, glow);
+    gl_FragColor = vec4(color, max(base.a, outlineColor.a * alpha * glow));
 }
 `;
 const VEHICLE_CREW_PATHS = [
@@ -120,6 +126,7 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
                 5,
                 ["getGlaxonInsurancePremiumPercent", "getShipInsurancePremiumPercent", "getInsurancePremiumPercent"]
             ),
+            vehicleOpsInsuranceCompanyName: safeGetModuleSetting("vehicleOpsInsuranceCompanyName", "Glaxxon Insurance"),
             vehicleOpsInsuranceCodeRequired: safeGetModuleSetting("vehicleOpsInsuranceCodeRequired", false),
             vehicleOpsInsuranceConfirmationCode: safeGetModuleSetting("vehicleOpsInsuranceConfirmationCode", ""),
             vehicleOpsTokenMagicDamage: safeGetModuleSetting("vehicleOpsTokenMagicDamage", true),
@@ -185,6 +192,7 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
             formData.vehicleOpsGlaxonPremiumPercent,
             5
         );
+        await safeSetModuleSetting("vehicleOpsInsuranceCompanyName", String(formData.vehicleOpsInsuranceCompanyName || "Glaxxon Insurance").trim() || "Glaxxon Insurance");
         await safeSetModuleSetting("vehicleOpsInsuranceCodeRequired", Boolean(formData.vehicleOpsInsuranceCodeRequired));
         await safeSetModuleSetting("vehicleOpsInsuranceConfirmationCode", String(formData.vehicleOpsInsuranceConfirmationCode || "").trim());
         await safeSetModuleSetting("vehicleOpsTokenMagicDamage", Boolean(formData.vehicleOpsTokenMagicDamage));
@@ -512,26 +520,30 @@ function syncBuiltInProtectionEffect(token, protection) {
 
 function getOrCreateProtectionEffect(token) {
     const existing = activeProtectionEffects.get(token.id);
-    if (existing && !existing.container.destroyed) {
+    if (existing) {
         existing.token = token;
+        const object = getProtectionVisualObject(token);
+        if (!object || object.destroyed) {
+            stopProtectionEffectForToken(token.id);
+            return null;
+        }
+        if (existing.object !== object) {
+            removeProtectionFilterFromObject(existing.object, existing.filter);
+            existing.object = object;
+            addProtectionFilterToObject(object, existing.filter);
+        }
         return existing;
     }
 
-    const container = new PIXI.Container();
-    container.blendMode = PIXI.BLEND_MODES.ADD;
-    container.eventMode = "none";
-    container.interactive = false;
-    container.sortableChildren = true;
-    container.zIndex = getTokenSortValue(token) - 1;
-
-    const layer = canvas.primary ?? canvas.effects ?? canvas.tokens;
-    layer.sortableChildren = true;
-    layer.addChild(container);
+    const object = getProtectionVisualObject(token);
+    if (!object || object.destroyed) return null;
+    const filter = createProtectionOutlineFilter();
+    addProtectionFilterToObject(object, filter);
 
     const state = {
         token,
-        container,
-        sprites: new Map(),
+        object,
+        filter,
         protection: null,
         phase: getProtectionEffectPhase(token.id)
     };
@@ -567,8 +579,19 @@ function updateProtectionEffects() {
 }
 
 function drawProtectionEffect(state, now) {
-    const { token, container, protection } = state;
-    if (!token || !container || container.destroyed || !protection) return;
+    const { token, protection } = state;
+    if (!token || !protection) return;
+
+    const object = getProtectionVisualObject(token);
+    if (!object || object.destroyed) {
+        stopProtectionEffectForToken(token.id);
+        return;
+    }
+    if (state.object !== object) {
+        removeProtectionFilterFromObject(state.object, state.filter);
+        state.object = object;
+        addProtectionFilterToObject(object, state.filter);
+    }
 
     const shieldOnline = protection.shield.online;
     const morphOnline = protection.morphogenetic.online;
@@ -578,77 +601,18 @@ function drawProtectionEffect(state, now) {
     }
 
     const pulse = (Math.sin((now / 900) + state.phase) + 1) / 2;
-    container.zIndex = getTokenSortValue(token) - 1;
-    hideProtectionSprites(state);
-
-    if (shieldOnline) {
-        const colors = SHIELD_COLORS[protection.shield.type] ?? SHIELD_COLORS.B;
-        drawOutlineGlowEffect(state, "shield", colors, 0.5 + pulse * 0.5);
-    }
-
-    if (morphOnline) {
-        const morphPulse = (Math.sin((now / 520) + state.phase * 1.7) + 1) / 2;
-        drawOutlineGlowEffect(state, "morphogenetic", MORPHOGENETIC_COLORS, 0.45 + morphPulse * 0.55);
-    }
-}
-
-function drawOutlineGlowEffect(state, prefix, colors, pulse) {
-    const layers = [
-        { key: "outer", color: colors.secondary, thickness: 18, alpha: 0.22 + pulse * 0.16 },
-        { key: "middle", color: colors.primary, thickness: 10, alpha: 0.42 + pulse * 0.18 },
-        { key: "inner", color: colors.secondary, thickness: 4, alpha: 0.72 + pulse * 0.2 }
-    ];
-
-    layers.forEach((layer, index) => {
-        const sprite = getProtectionOutlineSprite(state, `${prefix}-${layer.key}`);
-        syncProtectionOutlineSprite(sprite, state.token, layer, index);
-    });
-}
-
-function hideProtectionSprites(state) {
-    for (const sprite of state.sprites.values()) sprite.visible = false;
-}
-
-function getProtectionOutlineSprite(state, key) {
-    let sprite = state.sprites.get(key);
-    if (sprite && !sprite.destroyed) return sprite;
-
-    sprite = new PIXI.Sprite(getTokenTexture(state.token));
-    sprite.anchor.set(0.5, 0.5);
-    sprite.blendMode = PIXI.BLEND_MODES.ADD;
-    sprite.eventMode = "none";
-    sprite.interactive = false;
-    sprite.filters = [createProtectionOutlineFilter()];
-    state.container.addChild(sprite);
-    state.sprites.set(key, sprite);
-    return sprite;
-}
-
-function syncProtectionOutlineSprite(sprite, token, layer, zIndex) {
-    const texture = getTokenTexture(token);
-    if (texture && sprite.texture !== texture) sprite.texture = texture;
-    sprite.visible = Boolean(texture);
-    sprite.x = token.x + token.w / 2;
-    sprite.y = token.y + token.h / 2;
-    sprite.width = token.w;
-    sprite.height = token.h;
-    sprite.rotation = getTokenRotationRadians(token);
-    sprite.tint = 0xffffff;
-    sprite.alpha = 1;
-    sprite.zIndex = zIndex;
-
-    const filter = sprite.filters?.[0];
+    const shieldColors = SHIELD_COLORS[protection.shield.type] ?? SHIELD_COLORS.B;
+    const morphPulse = (Math.sin((now / 520) + state.phase * 1.7) + 1) / 2;
+    const colors = morphOnline ? MORPHOGENETIC_COLORS : shieldColors;
+    const activePulse = morphOnline ? morphPulse : pulse;
+    const filter = state.filter;
     if (filter?.uniforms) {
-        filter.uniforms.outlineColor = numberToRgba(layer.color);
-        filter.uniforms.texelSize = [1 / Math.max(1, sprite.width), 1 / Math.max(1, sprite.height)];
-        filter.uniforms.thickness = Math.max(1, Number(layer.thickness) || 1);
-        filter.uniforms.alpha = Math.max(0, Math.min(1, Number(layer.alpha) || 0));
-        filter.padding = Math.max(24, filter.uniforms.thickness * 2.5);
+        filter.uniforms.outlineColor = numberToRgba(colors.primary);
+        filter.uniforms.texelSize = getProtectionTexelSize(object, token);
+        filter.uniforms.thickness = morphOnline && shieldOnline ? 18 : 14;
+        filter.uniforms.alpha = 0.72 + activePulse * 0.18;
+        filter.padding = 48;
     }
-}
-
-function getTokenTexture(token) {
-    return token?.mesh?.texture || token?.icon?.texture || PIXI.Texture.EMPTY;
 }
 
 function createProtectionOutlineFilter() {
@@ -659,7 +623,31 @@ function createProtectionOutlineFilter() {
         alpha: 0.5
     });
     filter.padding = 32;
+    filter.__fullSpeedAheadProtection = true;
     return filter;
+}
+
+function getProtectionVisualObject(token) {
+    return token?.mesh ?? token?.icon ?? token?.children?.find(child => child?.texture) ?? null;
+}
+
+function addProtectionFilterToObject(object, filter) {
+    if (!object || !filter) return;
+    const filters = Array.isArray(object.filters) ? object.filters.filter(existing => !existing?.__fullSpeedAheadProtection) : [];
+    filters.push(filter);
+    object.filters = filters;
+}
+
+function removeProtectionFilterFromObject(object, filter) {
+    if (!object) return;
+    const filters = Array.isArray(object.filters) ? object.filters.filter(existing => existing !== filter && !existing?.__fullSpeedAheadProtection) : [];
+    object.filters = filters.length ? filters : null;
+}
+
+function getProtectionTexelSize(object, token) {
+    const width = Math.max(1, Number(object?.width) || Number(token?.w) || 1);
+    const height = Math.max(1, Number(object?.height) || Number(token?.h) || 1);
+    return [1 / width, 1 / height];
 }
 
 function numberToRgba(color) {
@@ -672,14 +660,10 @@ function numberToRgba(color) {
     ];
 }
 
-function getTokenRotationRadians(token) {
-    return Number(token?.document?.rotation || 0) * (Math.PI / 180);
-}
-
 function stopProtectionEffectForToken(tokenId) {
     const state = activeProtectionEffects.get(tokenId);
     if (!state) return;
-    state.container.destroy({ children: true });
+    removeProtectionFilterFromObject(state.object, state.filter);
     activeProtectionEffects.delete(tokenId);
     if (!activeProtectionEffects.size) stopProtectionTicker();
 }
