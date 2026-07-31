@@ -137,14 +137,12 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
             const key = event.currentTarget.dataset.syncRange;
             html.find(`[data-sync-number="${key}"]`).val(event.currentTarget.value);
             this.previewFromForm(html);
-            this.fitWindowToContent(html);
         });
 
         html.find("[data-sync-number]").on("input change", event => {
             const key = event.currentTarget.dataset.syncNumber;
             html.find(`[data-sync-range="${key}"]`).val(event.currentTarget.value);
             this.previewFromForm(html);
-            this.fitWindowToContent(html);
         });
 
         html.find('[data-color-picker]').on("input", event => {
@@ -256,6 +254,9 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
 
             const maxHeight = Math.max(360, window.innerHeight - 80);
             const desiredHeight = Math.min(maxHeight, content.scrollHeight + (header?.offsetHeight ?? 0) + 18);
+            const currentHeight = element.getBoundingClientRect().height;
+            if (Math.abs(currentHeight - desiredHeight) < 4) return;
+
             this.setPosition({ height: desiredHeight });
             content.style.overflowY = desiredHeight >= maxHeight ? "auto" : "visible";
         });
@@ -402,13 +403,8 @@ class FullSpeedAheadEffectsConfig extends FormApplication {
         profile.thrusterColor = /^#[0-9a-f]{6}$/i.test(shipColor) ? shipColor : fallbackColor;
 
         const thrusterConfig = this.getThrusterConfigFromForm(form);
-        const existingProfileDimensions = normalizeThrusterConfig(
-            profiles[profileKey]?.thrusterDimensions,
-            profile.thrusterColor
-        );
         profile.thrusterDimensions = {
-            ...thrusterConfig,
-            scale: existingProfileDimensions.scale
+            ...thrusterConfig
         };
         profiles[profileKey] = profile;
         await game.settings.set(MODULE_ID, SHIP_PROFILES_SETTING, profiles);

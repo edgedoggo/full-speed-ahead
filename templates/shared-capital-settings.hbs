@@ -1,6 +1,6 @@
 <form class="fsa-shared-capital" autocomplete="off">
     <section class="fsa-capital-card">
-        <div class="fsa-capital-title">Shared Capital</div>
+        <div class="fsa-capital-title">{{capitalTitle}}</div>
         <div class="fsa-capital-balance">{{formattedCapital}}</div>
         <p class="notes">{{statusText}}</p>
     </section>
@@ -13,28 +13,42 @@
     </div>
 
     <div class="form-group">
-        <label>Capital Action</label>
+        <label>Enter Value</label>
         <div class="form-fields">
-            <select name="capitalMode">
-                <option value="add">Add to shared capital</option>
-                <option value="subtract">Subtract from shared capital</option>
-                <option value="replace">Replace shared capital</option>
-            </select>
+            <input type="text" name="capitalAmount" value="" placeholder="+100, -50, etc.">
         </div>
     </div>
 
     <div class="form-group">
-        <label>Amount</label>
+        <label>Replace total</label>
+        <input type="checkbox" name="replaceTotal">
+    </div>
+
+    <div class="form-group">
+        <label>Player withdrawal</label>
+        <input type="checkbox" name="playerWithdrawal">
+    </div>
+
+    <div class="form-group">
+        <label>Select Player</label>
         <div class="form-fields">
-            <input type="number" name="capitalAmount" value="0" min="0" step="1">
+            <select name="playerActorId" disabled>
+                {{#each playerOptions}}
+                <option value="{{id}}">{{name}}</option>
+                {{/each}}
+            </select>
         </div>
     </div>
 
+    <p class="notes">Enter a positive value to add capital, a negative value to withdraw capital, or check Replace total to set the ledger to the entered value. Player withdrawal adds a negative withdrawal to the selected character's GP.</p>
     <p class="notes">This is one shared ledger. When TradeHub Markets is active, Full Speed Ahead uses TradeHub's internal capital. When it is not active, Full Speed Ahead stores the same ledger locally.</p>
 
     <footer class="sheet-footer flexrow">
         <button type="submit">
             <i class="fas fa-save"></i> Save
+        </button>
+        <button type="button" data-action="cancel">
+            Cancel
         </button>
     </footer>
 </form>

@@ -1740,30 +1740,68 @@ class FullSpeedAheadSharedCapitalConfig extends FormApplication {
     getData() {
         const activeTradeHub = TradeHubIntegrationAdapter.usesTradeHubCapital();
         const capital = TradeHubIntegrationAdapter.capital();
+        const playerOptions = game.actors.contents
+            .filter(actor => actor?.hasPlayerOwner && actor.type !== "vehicle")
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map(actor => ({ id: actor.id, name: actor.name }));
         return {
             activeTradeHub,
             sourceLabel: TradeHubIntegrationAdapter.capitalSourceLabel(),
+            capitalTitle: activeTradeHub ? "TradeHub Capital" : "Shared Capital",
             capital,
             formattedCapital: formatGp(capital),
             fallbackCapital: formatGp(TradeHubIntegrationAdapter.fallbackCapital()),
+            playerOptions,
             statusText: activeTradeHub
                 ? "TradeHub Markets is active. Full Speed Ahead reads and writes TradeHub's internal capital, then mirrors that value locally so the shared ledger stays aligned."
                 : "TradeHub Markets is not active. Full Speed Ahead is holding the shared capital locally. If TradeHub is enabled later, this balance can seed TradeHub's internal capital."
         };
     }
 
+    activateListeners(html) {
+        super.activateListeners(html);
+
+        html.find('[name="playerWithdrawal"]').on("change", event => {
+            html.find('[name="playerActorId"]').prop("disabled", !event.currentTarget.checked);
+        });
+        html.find('[data-action="cancel"]').on("click", event => {
+            event.preventDefault();
+            this.close();
+        });
+    }
+
     async _updateObject(_event, formData) {
-        const mode = String(formData.capitalMode || "add");
-        const amount = Number(formData.capitalAmount || 0);
+        const rawAmount = String(formData.capitalAmount ?? "").trim();
+        if (!rawAmount) throw new Error("Enter a valid capital amount.");
+        const amount = Number(rawAmount.replace(/,/g, ""));
         if (!Number.isFinite(amount)) throw new Error("Enter a valid capital amount.");
         const current = TradeHubIntegrationAdapter.capital();
-        let next = current;
-        if (mode === "replace") next = amount;
-        else if (mode === "subtract") next = current - Math.abs(amount);
-        else next = current + amount;
+        const replace = Boolean(formData.replaceTotal);
+        const playerWithdrawal = Boolean(formData.playerWithdrawal);
+        const next = replace ? amount : current + amount;
         if (next < 0) return ui.notifications.error("Shared capital cannot go below 0.");
         await TradeHubIntegrationAdapter.setCapital(next);
+
+        let messageContent;
+        if (replace) {
+            messageContent = `<b>${formatGp(next)} has been set as ${escapeHtml(TradeHubIntegrationAdapter.capitalSourceLabel())} Capital.</b><br>Shared Capital: ${formatGp(next)}`;
+        } else {
+            const action = amount >= 0 ? "added to" : "withdrawn from";
+            messageContent = `<b>${formatGp(Math.abs(amount))} has been ${action} shared capital.</b><br>Shared Capital: ${formatGp(next)}`;
+        }
+
+        if (!replace && playerWithdrawal && amount < 0 && formData.playerActorId) {
+            const playerActor = game.actors.get(String(formData.playerActorId));
+            if (playerActor) {
+                const playerCash = Number(playerActor.system?.currency?.gp || 0) + Math.abs(amount);
+                await playerActor.update({ "system.currency.gp": playerCash });
+                messageContent += `<br><b>Withdrew ${formatGp(Math.abs(amount))} to ${escapeHtml(playerActor.name)}.</b>`;
+            }
+        }
+
+        await VehicleChatCardService.create({ speaker: { alias: "Full Speed Ahead Banking" }, content: messageContent });
         ui.notifications.info(`Shared capital updated to ${formatGp(TradeHubIntegrationAdapter.capital())}.`);
+        refreshSharedCapitalInterfaces({ broadcast: true });
     }
 }
 

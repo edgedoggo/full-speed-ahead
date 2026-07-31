@@ -28,6 +28,41 @@ const SHIELD_COLORS = {
     PRISMATIC: { primary: 0x9999ff, secondary: 0xff00ff }
 };
 const MORPHOGENETIC_COLORS = { primary: 0x9b4dff, secondary: 0xe2b7ff };
+const PROTECTION_OUTLINE_FRAGMENT = `
+precision mediump float;
+
+varying vec2 vTextureCoord;
+uniform sampler2D uSampler;
+uniform vec4 outlineColor;
+uniform vec2 texelSize;
+uniform float thickness;
+uniform float alpha;
+
+void main(void) {
+    vec4 base = texture2D(uSampler, vTextureCoord);
+    float neighborAlpha = 0.0;
+
+    for (int ring = 1; ring <= 18; ring++) {
+        float radius = float(ring);
+        if (radius <= thickness) {
+            vec2 offset = texelSize * radius;
+            float falloff = 1.0 - ((radius - 1.0) / max(thickness, 1.0));
+            neighborAlpha = max(neighborAlpha, texture2D(uSampler, vTextureCoord + vec2(offset.x, 0.0)).a * falloff);
+            neighborAlpha = max(neighborAlpha, texture2D(uSampler, vTextureCoord + vec2(-offset.x, 0.0)).a * falloff);
+            neighborAlpha = max(neighborAlpha, texture2D(uSampler, vTextureCoord + vec2(0.0, offset.y)).a * falloff);
+            neighborAlpha = max(neighborAlpha, texture2D(uSampler, vTextureCoord + vec2(0.0, -offset.y)).a * falloff);
+            neighborAlpha = max(neighborAlpha, texture2D(uSampler, vTextureCoord + vec2(offset.x, offset.y)).a * falloff);
+            neighborAlpha = max(neighborAlpha, texture2D(uSampler, vTextureCoord + vec2(-offset.x, offset.y)).a * falloff);
+            neighborAlpha = max(neighborAlpha, texture2D(uSampler, vTextureCoord + vec2(offset.x, -offset.y)).a * falloff);
+            neighborAlpha = max(neighborAlpha, texture2D(uSampler, vTextureCoord + vec2(-offset.x, -offset.y)).a * falloff);
+        }
+    }
+
+    float outline = max(neighborAlpha - base.a, 0.0);
+    float glow = smoothstep(0.0, 0.7, outline) * (1.0 - base.a);
+    gl_FragColor = vec4(outlineColor.rgb, outlineColor.a * alpha * glow);
+}
+`;
 const VEHICLE_CREW_PATHS = [
     "system.cargo.crew",
     "system.details.crew",
@@ -548,25 +583,25 @@ function drawProtectionEffect(state, now) {
 
     if (shieldOnline) {
         const colors = SHIELD_COLORS[protection.shield.type] ?? SHIELD_COLORS.B;
-        drawTextureGlowEffect(state, "shield", colors, 1 + pulse * 0.035, 0.44 + pulse * 0.2);
+        drawOutlineGlowEffect(state, "shield", colors, 0.5 + pulse * 0.5);
     }
 
     if (morphOnline) {
         const morphPulse = (Math.sin((now / 520) + state.phase * 1.7) + 1) / 2;
-        drawTextureGlowEffect(state, "morphogenetic", MORPHOGENETIC_COLORS, 1.045 + morphPulse * 0.03, 0.34 + morphPulse * 0.16);
+        drawOutlineGlowEffect(state, "morphogenetic", MORPHOGENETIC_COLORS, 0.45 + morphPulse * 0.55);
     }
 }
 
-function drawTextureGlowEffect(state, prefix, colors, scale, alpha) {
+function drawOutlineGlowEffect(state, prefix, colors, pulse) {
     const layers = [
-        { key: "outer", color: colors.secondary, scale: scale + 0.075, alpha: alpha * 0.36, blur: 18 },
-        { key: "middle", color: colors.primary, scale: scale + 0.04, alpha: alpha * 0.58, blur: 10 },
-        { key: "inner", color: colors.secondary, scale: scale + 0.018, alpha: Math.min(0.95, alpha), blur: 3 }
+        { key: "outer", color: colors.secondary, thickness: 18, alpha: 0.22 + pulse * 0.16 },
+        { key: "middle", color: colors.primary, thickness: 10, alpha: 0.42 + pulse * 0.18 },
+        { key: "inner", color: colors.secondary, thickness: 4, alpha: 0.72 + pulse * 0.2 }
     ];
 
     layers.forEach((layer, index) => {
-        const sprite = getProtectionSprite(state, `${prefix}-${layer.key}`, layer.blur);
-        syncProtectionSprite(sprite, state.token, layer.color, layer.alpha, layer.scale, index);
+        const sprite = getProtectionOutlineSprite(state, `${prefix}-${layer.key}`);
+        syncProtectionOutlineSprite(sprite, state.token, layer, index);
     });
 }
 
@@ -574,7 +609,7 @@ function hideProtectionSprites(state) {
     for (const sprite of state.sprites.values()) sprite.visible = false;
 }
 
-function getProtectionSprite(state, key, blur) {
+function getProtectionOutlineSprite(state, key) {
     let sprite = state.sprites.get(key);
     if (sprite && !sprite.destroyed) return sprite;
 
@@ -583,37 +618,58 @@ function getProtectionSprite(state, key, blur) {
     sprite.blendMode = PIXI.BLEND_MODES.ADD;
     sprite.eventMode = "none";
     sprite.interactive = false;
-    const blurFilter = createBlurFilter(blur);
-    sprite.filters = blurFilter ? [blurFilter] : null;
+    sprite.filters = [createProtectionOutlineFilter()];
     state.container.addChild(sprite);
     state.sprites.set(key, sprite);
     return sprite;
 }
 
-function syncProtectionSprite(sprite, token, tint, alpha, scale, zIndex) {
+function syncProtectionOutlineSprite(sprite, token, layer, zIndex) {
     const texture = getTokenTexture(token);
     if (texture && sprite.texture !== texture) sprite.texture = texture;
     sprite.visible = Boolean(texture);
     sprite.x = token.x + token.w / 2;
     sprite.y = token.y + token.h / 2;
-    sprite.width = token.w * scale;
-    sprite.height = token.h * scale;
+    sprite.width = token.w;
+    sprite.height = token.h;
     sprite.rotation = getTokenRotationRadians(token);
-    sprite.tint = tint;
-    sprite.alpha = alpha;
+    sprite.tint = 0xffffff;
+    sprite.alpha = 1;
     sprite.zIndex = zIndex;
+
+    const filter = sprite.filters?.[0];
+    if (filter?.uniforms) {
+        filter.uniforms.outlineColor = numberToRgba(layer.color);
+        filter.uniforms.texelSize = [1 / Math.max(1, sprite.width), 1 / Math.max(1, sprite.height)];
+        filter.uniforms.thickness = Math.max(1, Number(layer.thickness) || 1);
+        filter.uniforms.alpha = Math.max(0, Math.min(1, Number(layer.alpha) || 0));
+        filter.padding = Math.max(24, filter.uniforms.thickness * 2.5);
+    }
 }
 
 function getTokenTexture(token) {
     return token?.mesh?.texture || token?.icon?.texture || PIXI.Texture.EMPTY;
 }
 
-function createBlurFilter(strength) {
-    const FilterClass = PIXI.BlurFilter || PIXI.filters?.BlurFilter;
-    if (!FilterClass) return null;
-    const filter = new FilterClass(strength, 4);
-    filter.padding = Math.max(20, strength * 2);
+function createProtectionOutlineFilter() {
+    const filter = new PIXI.Filter(undefined, PROTECTION_OUTLINE_FRAGMENT, {
+        outlineColor: [1, 1, 1, 1],
+        texelSize: [0.01, 0.01],
+        thickness: 8,
+        alpha: 0.5
+    });
+    filter.padding = 32;
     return filter;
+}
+
+function numberToRgba(color) {
+    const numeric = Number(color) || 0xffffff;
+    return [
+        ((numeric >> 16) & 0xff) / 255,
+        ((numeric >> 8) & 0xff) / 255,
+        (numeric & 0xff) / 255,
+        1
+    ];
 }
 
 function getTokenRotationRadians(token) {
