@@ -615,8 +615,7 @@ class VehicleModuleService {
         return Array.from(actor?.items ?? []).find(item => {
             if (!/heat sink/i.test(item.name || "")) return false;
             if (Number(item.system?.quantity ?? 1) <= 0) return false;
-            if (item.system && Object.prototype.hasOwnProperty.call(item.system, "equipped") && item.system.equipped !== true) return false;
-            if (this.itemMaxHp(item) > 0 && this.itemHp(item) <= 0) return false;
+            if (this.isShipModuleItem(item) && !this.isOperationalShipModule(item)) return false;
             return true;
         });
     }

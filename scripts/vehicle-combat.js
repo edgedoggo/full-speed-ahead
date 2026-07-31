@@ -375,7 +375,9 @@ Hooks.on("createCombatant", combatant => replaceVehicleCombatantWithCrew(combata
 Hooks.on("renderCombatTracker", (app, html) => renderVehicleCrewTracker(app, html));
 Hooks.on("deleteCombat", combat => restoreVehicleCombatOwnership(combat));
 Hooks.on("updateCombat", (combat, changes) => {
-    if (Object.prototype.hasOwnProperty.call(changes ?? {}, "round")) ui.combat?.render(true);
+    const changed = changes ?? {};
+    const movementChanged = Boolean(foundry.utils.getProperty(changed, `flags.${MODULE_ID}.${VEHICLE_COMBAT_MOVEMENT_FLAG}`));
+    if (Object.prototype.hasOwnProperty.call(changed, "round") || movementChanged) ui.combat?.render(true);
 });
 Hooks.on("preUpdateToken", (tokenDocument, changes, options) => guardVehicleCombatMovement(tokenDocument, changes, options));
 Hooks.on("updateToken", (tokenDocument, changes, options, userId) => recordVehicleCombatMovement(tokenDocument, changes, options, userId));
@@ -456,8 +458,8 @@ function isVehicleCombatSharedMovementEnabled() {
     return Boolean(safeGetModuleSetting("vehicleCombatSharedMovement", true));
 }
 
-function getStartedCombatForScene(scene) {
-    const combat = game.combat;
+function getStartedCombatForScene(scene, combatOverride = null) {
+    const combat = combatOverride ?? game.combat;
     if (!combat) return null;
     const started = Boolean(combat.started) || Number(combat.round) > 0;
     if (!started) return null;
@@ -493,6 +495,16 @@ async function recordVehicleCombatMovement(tokenDocument, changes, options = {},
         : measureTokenDocumentMovement(tokenDocument, changes);
     if (measuredDistance <= 0) return;
 
+    if (!game.user.isGM) {
+        game.socket?.emit?.(`module.${MODULE_ID}`, {
+            type: "vehicleCombatMovementSpend",
+            tokenUuid: tokenDocument.uuid,
+            combatId: state.combat.id,
+            distance: measuredDistance
+        });
+        return;
+    }
+
     try {
         await persistVehicleCombatMovementSpend(state, measuredDistance, tokenDocument);
     } catch (error) {
@@ -508,30 +520,14 @@ async function recordVehicleCombatMovement(tokenDocument, changes, options = {},
 
 async function handleVehicleCombatSocket(message) {
     if (!game.user.isGM) return;
-    if (message?.type === "vehicleCrewRollInitiative") {
-        await handleVehicleCrewRollInitiativeSocket(message);
-        return;
-    }
     if (message?.type !== "vehicleCombatMovementSpend") return;
     const combat = game.combats?.get(message.combatId);
-    if (!combat || combat.id !== game.combat?.id) return;
+    if (!combat) return;
     const tokenDocument = await fromUuid(message.tokenUuid);
-    const state = getCombatMovementStateForTokenOrActor(tokenDocument);
+    const state = getCombatMovementStateForTokenOrActor(tokenDocument, combat);
     const distance = Math.max(0, Number(message.distance) || 0);
     if (!state || distance <= 0) return;
     await persistVehicleCombatMovementSpend(state, distance, tokenDocument);
-}
-
-async function handleVehicleCrewRollInitiativeSocket(message) {
-    const combat = game.combats?.get(message.combatId);
-    const combatant = combat?.combatants?.get?.(message.combatantId);
-    const user = game.users?.get(message.userId);
-    const data = combatant?.getFlag(MODULE_ID, CREW_COMBATANT_FLAG);
-    if (!combat || !combatant || !user || !data) return;
-
-    const vehicle = await resolveCrewVehicleActor(data);
-    if (!vehicle || !canUserOpenVehicleSheet(vehicle, user)) return;
-    await rollCrewCombatantInitiative(combatant);
 }
 
 async function persistVehicleCombatMovementSpend(state, distance, tokenDocument = null) {
@@ -560,14 +556,14 @@ function getRemainingCombatMovement(tokenOrActor) {
     return getCombatMovementStateForTokenOrActor(tokenOrActor)?.remaining ?? null;
 }
 
-function getCombatMovementStateForTokenOrActor(tokenOrActor) {
+function getCombatMovementStateForTokenOrActor(tokenOrActor, combatOverride = null) {
     if (!isVehicleCombatSpeedManaged() || !isVehicleCombatSharedMovementEnabled()) return null;
     const tokenDocument = tokenOrActor?.documentName === "Token" ? tokenOrActor : tokenOrActor?.document;
     const actor = tokenDocument?.actor ?? (tokenOrActor?.documentName === "Actor" ? tokenOrActor : tokenOrActor?.actor);
     if (!isVehicleActor(actor)) return null;
 
     const scene = tokenDocument?.parent ?? canvas?.scene ?? null;
-    const combat = getStartedCombatForScene(scene);
+    const combat = getStartedCombatForScene(scene, combatOverride);
     if (!combat) return null;
 
     const identity = getVehicleCombatMovementIdentity(actor, tokenDocument, combat);
@@ -1404,11 +1400,6 @@ function renderVehicleCrewTracker(app, html) {
             vehicle.sheet?.render(true);
         });
 
-        row.find("[data-action='fsa-roll-crew-initiative']").off("click.fullSpeedAheadVehicleCombat").on("click.fullSpeedAheadVehicleCombat", async event => {
-            event.preventDefault();
-            event.stopPropagation();
-            await requestCrewCombatantInitiativeRoll(combatant, data);
-        });
     }
 }
 
@@ -1422,37 +1413,9 @@ async function resolveCrewVehicleActor(data) {
 }
 
 function canOpenVehicleSheet(actor) {
-    return canUserOpenVehicleSheet(actor, game.user);
-}
-
-function canUserOpenVehicleSheet(actor, user) {
     if (!actor) return false;
-    if (user?.isGM) return true;
-    return actor.testUserPermission?.(user, "OWNER") ?? false;
-}
-
-async function requestCrewCombatantInitiativeRoll(combatant, data) {
-    if (!combatant || combatant.initiative !== null) return;
-    const vehicle = await resolveCrewVehicleActor(data);
-    if (!vehicle) return ui.notifications.warn("Full Speed Ahead could not find that vehicle actor.");
-    if (!canOpenVehicleSheet(vehicle)) return ui.notifications.warn(`You do not have permission to roll initiative for ${vehicle.name}.`);
-
-    if (game.user.isGM) {
-        await rollCrewCombatantInitiative(combatant);
-        return;
-    }
-
-    game.socket?.emit?.(`module.${MODULE_ID}`, {
-        type: "vehicleCrewRollInitiative",
-        combatId: combatant.combat?.id,
-        combatantId: combatant.id,
-        userId: game.user.id
-    });
-}
-
-async function rollCrewCombatantInitiative(combatant) {
-    if (!combatant?.combat || combatant.initiative !== null) return;
-    await combatant.combat.rollInitiative([combatant.id], { updateTurn: true });
+    if (game.user.isGM) return true;
+    return actor.testUserPermission?.(game.user, "OWNER") ?? false;
 }
 
 function buildVehicleCombatantRow({ combatant, data, mode, badgeIcon, crewName, controls }) {
@@ -1477,16 +1440,8 @@ function buildVehicleCombatantRow({ combatant, data, mode, badgeIcon, crewName, 
         <h4>${escapeHtml(crewName)}</h4>
         <div class="full-speed-ahead-combat-role">${escapeHtml(data.vehicleName)} / ${escapeHtml(data.role || "Crew")}</div>
     </div>`);
-    const rollButton = buildCrewInitiativeButton(combatant, data);
-    row.append($(`<div class="full-speed-ahead-combat-controls"></div>`).append(rollButton).append(controls));
+    row.append($(`<div class="full-speed-ahead-combat-controls"></div>`).append(controls));
     return row;
-}
-
-function buildCrewInitiativeButton(combatant, data) {
-    if (!combatant || combatant.initiative !== null) return $();
-    const vehicle = data?.vehicleActorId ? game.actors?.get(data.vehicleActorId) : null;
-    if (!game.user.isGM && !canUserOpenVehicleSheet(vehicle, game.user)) return $();
-    return $(`<a class="full-speed-ahead-roll-initiative" data-action="fsa-roll-crew-initiative" title="Roll Initiative" aria-label="Roll Initiative"><i class="fas fa-dice-d20"></i></a>`);
 }
 
 function getCombatMovementStateForCrewData(data) {
@@ -1509,11 +1464,9 @@ function buildVehicleMovementBar(state) {
 }
 
 function detachCombatantControls(row) {
-    const controls = [];
-    row.find(".token-initiative, .combatant-controls").each((_index, element) => {
-        controls.push(element);
-    });
-    return $(controls).detach();
+    const controls = row.find(".token-initiative").detach();
+    row.find(".combatant-controls").remove();
+    return controls;
 }
 
 function isVehicleActor(actor) {

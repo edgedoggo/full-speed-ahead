@@ -1,42 +1,40 @@
 {
-    "id": "full-speed-ahead",
-    "name": "full-speed-ahead",
-    "title": "Full Speed Ahead",
-    "description": "Vehicle movement helpers for Foundry VTT: rotate vehicle tokens before they move, add movement sound effects, draw configurable thruster trails, and bundle independent non-vehicle and vehicle QuickTarget controls.",
-    "authors": [
-        {
-            "name": "OpenKyle",
-            "discord": "OpenKyle",
-            "url": "https://github.com/openkyle/full-speed-ahead"
-        }
-    ],
-  "version": "1.0.85",
-    "compatibility": {
-        "minimum": "10",
-        "verified": "11.312"
-    },
-    "manifest": "https://github.com/openkyle/full-speed-ahead/releases/latest/download/module.json",
-    "download": "https://github.com/openkyle/full-speed-ahead/releases/latest/download/latest.zip",
-    "socket": true,
-    "esmodules": [
-        "scripts/main.js",
-        "scripts/targetingsystem.js",
-        "scripts/vehicle-combat.js",
-        "scripts/vehicle-operations.js"
-    ],
-
-    "styles": [
-        "styles/vehicle-combat.css",
-        "styles/vehicle-operations.css"
-    ],
-
-    "languages": [],
-    "packs": [],
-    "assets": [
-        {
-            "type": "audio",
-            "name": "Lock-On Sound",
-            "path": "sounds/lockon.ogg"
-        }  
-    ]
+  "id": "full-speed-ahead",
+  "name": "full-speed-ahead",
+  "title": "Full Speed Ahead",
+  "description": "Vehicle movement helpers for Foundry VTT: rotate vehicle tokens before they move, add movement sound effects, draw configurable thruster trails, and bundle independent non-vehicle and vehicle QuickTarget controls.",
+  "authors": [
+    {
+      "name": "OpenKyle",
+      "discord": "OpenKyle",
+      "url": "https://github.com/openkyle/full-speed-ahead"
+    }
+  ],
+  "version": "1.0.86",
+  "compatibility": {
+    "minimum": "10",
+    "verified": "11.312"
+  },
+  "manifest": "https://github.com/openkyle/full-speed-ahead/releases/latest/download/module.json",
+  "download": "https://github.com/openkyle/full-speed-ahead/releases/latest/download/latest.zip",
+  "socket": true,
+  "esmodules": [
+    "scripts/main.js",
+    "scripts/targetingsystem.js",
+    "scripts/vehicle-combat.js",
+    "scripts/vehicle-operations.js"
+  ],
+  "styles": [
+    "styles/vehicle-combat.css",
+    "styles/vehicle-operations.css"
+  ],
+  "languages": [],
+  "packs": [],
+  "assets": [
+    {
+      "type": "audio",
+      "name": "Lock-On Sound",
+      "path": "sounds/lockon.ogg"
+    }
+  ]
 }

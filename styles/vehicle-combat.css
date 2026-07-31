@@ -161,13 +161,10 @@
 
 .full-speed-ahead-combat-controls .token-initiative,
 .full-speed-ahead-combat-controls .combatant-controls,
-.full-speed-ahead-combat-controls .full-speed-ahead-roll-initiative,
 #combat-tracker .full-speed-ahead-combat-controls .token-initiative,
 #combat-tracker .full-speed-ahead-combat-controls .combatant-controls,
-#combat-tracker .full-speed-ahead-combat-controls .full-speed-ahead-roll-initiative,
 .combat-tracker .full-speed-ahead-combat-controls .token-initiative,
-.combat-tracker .full-speed-ahead-combat-controls .combatant-controls,
-.combat-tracker .full-speed-ahead-combat-controls .full-speed-ahead-roll-initiative {
+.combat-tracker .full-speed-ahead-combat-controls .combatant-controls {
     align-items: center;
     color: #f5f2df;
     display: flex;
