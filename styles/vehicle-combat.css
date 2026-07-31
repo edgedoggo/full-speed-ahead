@@ -3,7 +3,7 @@
 .combat-tracker .full-speed-ahead-crew-combatant {
     display: block !important;
     height: auto !important;
-    min-height: 72px !important;
+    min-height: 60px !important;
     overflow: hidden;
     padding: 0 !important;
 }
@@ -13,10 +13,10 @@
 .combat-tracker .full-speed-ahead-combat-row {
     align-items: center;
     display: grid !important;
-    gap: 8px;
-    grid-template-columns: 58px 50px minmax(0, 1fr) max-content;
-    min-height: 72px;
-    padding: 6px 8px;
+    gap: 7px;
+    grid-template-columns: 42px 42px minmax(0, 1fr) max-content;
+    min-height: 60px;
+    padding: 5px 7px;
     width: 100%;
 }
 
@@ -27,9 +27,9 @@
     align-self: stretch;
     border-right: 1px solid rgb(255 255 255 / 14%);
     display: grid;
-    grid-template-rows: minmax(0, 1fr) 4px;
+    grid-template-rows: minmax(0, 1fr) 5px;
     min-width: 0;
-    padding-right: 6px;
+    padding-right: 5px;
 }
 
 .full-speed-ahead-combat-ship,
@@ -39,11 +39,11 @@
     border: 0;
     border-radius: 3px;
     display: block;
-    height: 48px;
+    height: 34px;
     justify-self: center;
     max-width: none;
     object-fit: contain;
-    width: 48px;
+    width: 34px;
 }
 
 .full-speed-ahead-movement-bar,
@@ -51,9 +51,9 @@
 .combat-tracker .full-speed-ahead-movement-bar {
     background: rgb(0 0 0 / 58%);
     border: 1px solid rgb(255 255 255 / 16%);
-    border-radius: 0;
+    border-radius: 2px;
     box-shadow: 0 1px 2px #000 inset;
-    height: 4px;
+    height: 5px;
     overflow: hidden;
     width: 100%;
 }
@@ -71,9 +71,9 @@
 .full-speed-ahead-combat-crew-wrap,
 #combat-tracker .full-speed-ahead-combat-crew-wrap,
 .combat-tracker .full-speed-ahead-combat-crew-wrap {
-    height: 50px;
+    height: 42px;
     position: relative;
-    width: 50px;
+    width: 42px;
 }
 
 .full-speed-ahead-combat-crew,
@@ -83,10 +83,10 @@
     border-radius: 50%;
     box-shadow: 0 0 0 2px rgb(255 255 255 / 18%), 0 2px 7px #000;
     display: block;
-    height: 50px;
+    height: 42px;
     max-width: none;
     object-fit: cover;
-    width: 50px;
+    width: 42px;
 }
 
 .full-speed-ahead-ship-badge,
@@ -98,13 +98,13 @@
     bottom: -4px;
     box-shadow: 0 1px 4px #000;
     filter: brightness(0) invert(1);
-    height: 17px;
+    height: 15px;
     object-fit: contain;
     padding: 2px;
     pointer-events: none;
     position: absolute;
     right: -5px;
-    width: 17px;
+    width: 15px;
 }
 
 .full-speed-ahead-combat-name,
@@ -118,7 +118,7 @@
 #combat-tracker .full-speed-ahead-combat-name h4,
 .combat-tracker .full-speed-ahead-combat-name h4 {
     color: #f5f2df;
-    font-size: 18px;
+    font-size: 15px;
     font-weight: 800;
     line-height: 1.05;
     margin: 0;
@@ -132,7 +132,7 @@
 #combat-tracker .full-speed-ahead-combat-role,
 .combat-tracker .full-speed-ahead-combat-role {
     color: rgb(255 255 255 / 82%);
-    font-size: 12px;
+    font-size: 10px;
     font-weight: 700;
     line-height: 1.15;
     margin-top: 2px;
@@ -150,7 +150,7 @@
     flex-direction: column;
     gap: 3px;
     justify-content: center;
-    min-width: 34px;
+    min-width: 30px;
 }
 
 .full-speed-ahead-combat-controls:empty,
@@ -161,16 +161,21 @@
 
 .full-speed-ahead-combat-controls .token-initiative,
 .full-speed-ahead-combat-controls .combatant-controls,
+.full-speed-ahead-combat-controls .full-speed-ahead-roll-initiative,
 #combat-tracker .full-speed-ahead-combat-controls .token-initiative,
 #combat-tracker .full-speed-ahead-combat-controls .combatant-controls,
+#combat-tracker .full-speed-ahead-combat-controls .full-speed-ahead-roll-initiative,
 .combat-tracker .full-speed-ahead-combat-controls .token-initiative,
-.combat-tracker .full-speed-ahead-combat-controls .combatant-controls {
+.combat-tracker .full-speed-ahead-combat-controls .combatant-controls,
+.combat-tracker .full-speed-ahead-combat-controls .full-speed-ahead-roll-initiative {
     align-items: center;
+    color: #f5f2df;
     display: flex;
     flex: 0 0 auto;
     gap: 4px;
     margin: 0;
     position: static !important;
+    text-shadow: 0 1px 3px #000;
 }
 
 .full-speed-ahead-crew-combatant.full-speed-ahead-crew-artificial .full-speed-ahead-combat-crew,

@@ -1259,7 +1259,6 @@ class VehicleRepairService {
 
 class VehicleScanService {
     static async scan(payload, userId) {
-        if (!game.settings.get(FSA_MODULE_ID, "vehicleOpsScansEnabled")) throw new Error("Vehicle scans are disabled.");
         const { actor } = VehicleTargetResolver.resolve(payload);
         if (!actor || actor.type !== "vehicle") throw new Error("Selected vehicle not found.");
         VehicleModuleService.requireOperationalModule(actor, /scanner suite/i, "Scanner Suite");
@@ -2497,13 +2496,12 @@ function registerVehicleOpsSettings() {
     register("vehicleOpsShowFloatingMenuGM", { name: "Show GM FSA Floating Menu", hint: "Show the draggable FSA floating operations menu and vehicle operations scene-control button to the GM.", type: Boolean, default: true, config: false, onChange: refreshFsaFloatingMenu });
     register("vehicleOpsShowFloatingMenuPlayers", { name: "Show FSA Floating Menu to Players", hint: "Show the draggable FSA floating operations menu to non-GM users.", type: Boolean, default: false, config: false, onChange: refreshFsaFloatingMenu });
     register("vehicleOpsFloatingMenuPosition", { name: "Vehicle Operations Floating Menu Position", type: Object, default: { left: 14, top: 125 }, config: false });
-    register("vehicleOpsScansEnabled", { name: "Enable Vehicle Operation Scans", hint: "Allow Tactical, Manifest, and Wake scans from the vehicle operations window.", type: Boolean, default: true, config: false });
     register("vehicleOpsRepairCostPerHp", { name: "Fallback Repair Cost Per Module HP", hint: "Used when TradeHub is unavailable or does not expose a repair HP cost.", type: Number, default: 100, config: false });
     register("vehicleOpsRepairCostPerShieldPoint", { name: "Fallback Repair Cost Per Shield HP", hint: "Used when TradeHub is unavailable or does not expose a shield repair HP cost.", type: Number, default: 100, config: false });
     register("vehicleOpsShipUpkeepPercent", { name: "Fallback Ship Long Rest Upkeep Percentage", hint: "Used when TradeHub is unavailable or does not expose shipUpkeepPercent/calculateShipUpkeep. Enter 0.2 for 0.2%.", type: Number, default: 0.2, config: false });
     register("vehicleOpsGlaxonPremiumPercent", { name: "Fallback Glaxon Insurance Premium Percentage", hint: "Used when TradeHub is unavailable or does not expose a Glaxon insurance premium setting/calculator. Enter 5 for 5%.", type: Number, default: 5, config: false });
     register("vehicleOpsInsuranceCompanyName", { name: "Insurance Company Name", hint: "Displayed name for vehicle insurance in Full Speed Ahead.", type: String, default: "Glaxxon Insurance", config: false });
-    register("vehicleOpsInsuranceCodeRequired", { name: "Require Glaxon Insurance Confirmation Code", hint: "Require a confirmation code before a vehicle can subscribe to Glaxon insurance.", type: Boolean, default: false, config: false });
+    register("vehicleOpsInsuranceCodeRequired", { name: "Require Glaxon Insurance Confirmation Code", hint: "Require a confirmation code before a vehicle can subscribe to Glaxon insurance.", type: Boolean, default: true, config: false });
     register("vehicleOpsInsuranceConfirmationCode", { name: "Glaxon Insurance Confirmation Code", hint: "Code that must be entered when subscribing to Glaxon insurance if confirmation is required.", type: String, default: "", config: false });
     register("vehicleOpsTokenMagicDamage", { name: "Use TokenMagic Damage Bursts", hint: "If TokenMagic FX is installed, show splash damage filters when vehicle modules take damage.", type: Boolean, default: true, config: false });
     register("vehicleOpsItemPilesJettison", { name: "Use Item Piles for Cargo Jettison", hint: "If Item Piles is installed, create cargo piles near the vehicle when Cargo Bay failure jettisons cargo.", type: Boolean, default: true, config: false });
