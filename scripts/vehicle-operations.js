@@ -254,11 +254,29 @@ class TradeHubIntegrationAdapter {
     }
 
     static insuranceConfirmationRequired() {
-        return Boolean(game.settings.get(FSA_MODULE_ID, "vehicleOpsInsuranceCodeRequired"));
+        const localRequired = Boolean(game.settings.get(FSA_MODULE_ID, "vehicleOpsInsuranceCodeRequired"));
+        const getter = [
+            game.tradehub?.isInsuranceConfirmationRequired,
+            game.tradehub?.getInsuranceConfirmationRequired,
+            game.tradehub?.isGlaxonInsuranceConfirmationRequired,
+            game.tradehub?.getGlaxonInsuranceConfirmationRequired
+        ].find(method => typeof method === "function");
+        const apiRequired = getter ? Boolean(getter()) : false;
+
+        const tradeHubKeys = ["insuranceConfirmationRequired", "glaxonInsuranceConfirmationRequired", "shipInsuranceConfirmationRequired"];
+        const tradeHubKey = tradeHubKeys.find(key => this.tradeHubSettingExists(key));
+        const tradeHubRequired = tradeHubKey ? Boolean(this.setting(tradeHubKey, false)) : false;
+
+        return Boolean(localRequired || apiRequired || tradeHubRequired || this.insuranceConfirmationCode());
     }
 
     static insuranceCompanyName() {
-        return String(game.settings.get(FSA_MODULE_ID, "vehicleOpsInsuranceCompanyName") || "Glaxxon Insurance").trim() || "Glaxxon Insurance";
+        const getter = [
+            game.tradehub?.getInsuranceCompanyName,
+            game.tradehub?.getGlaxonInsuranceCompanyName
+        ].find(method => typeof method === "function");
+        const tradeHubName = getter ? getter() : null;
+        return String(tradeHubName || game.settings.get(FSA_MODULE_ID, "vehicleOpsInsuranceCompanyName") || "Glaxxon Insurance").trim() || "Glaxxon Insurance";
     }
 
     static async setInsuranceCompanyName(name) {
@@ -268,6 +286,16 @@ class TradeHubIntegrationAdapter {
     }
 
     static insuranceConfirmationCode() {
+        const getter = [
+            game.tradehub?.getInsuranceConfirmationCode,
+            game.tradehub?.getGlaxonInsuranceConfirmationCode
+        ].find(method => typeof method === "function");
+        if (getter) return String(getter() || "").trim();
+
+        const tradeHubKeys = ["insuranceConfirmationCode", "glaxonInsuranceConfirmationCode", "shipInsuranceConfirmationCode"];
+        const tradeHubKey = tradeHubKeys.find(key => this.tradeHubSettingExists(key));
+        if (tradeHubKey) return String(this.setting(tradeHubKey, "") || "").trim();
+
         return String(game.settings.get(FSA_MODULE_ID, "vehicleOpsInsuranceConfirmationCode") || "").trim();
     }
 
@@ -511,6 +539,28 @@ class VehicleModuleService {
         return Array.from(actor?.items ?? []).filter(item => this.isEquippedShipModule(item) && this.itemMaxHp(item) > 0);
     }
 
+    static isOperationalShipModule(item) {
+        return this.isShipModuleItem(item) && this.isEquippedShipModule(item) && this.itemHp(item) > 0;
+    }
+
+    static offlineModuleError(item, label = "Module") {
+        const name = item?.name || label;
+        return `${name} is offline or unequipped and cannot be used.`;
+    }
+
+    static assertOperationalShipModule(item, label = "Module") {
+        if (!item) throw new Error(`${label} module not found.`);
+        if (!this.isOperationalShipModule(item)) throw new Error(this.offlineModuleError(item, label));
+        return item;
+    }
+
+    static selectedOperationalModule(actor, itemId, label = "Selected module") {
+        if (!itemId || itemId === "evenly") return null;
+        const item = actor?.items?.get(itemId);
+        if (!item) return null;
+        return this.assertOperationalShipModule(item, label);
+    }
+
     static repairableModules(actor) {
         return Array.from(actor?.items ?? []).filter(item => this.isShipModuleItem(item) && (this.isEquippedShipModule(item) || this.wasDestroyed(item)));
     }
@@ -549,12 +599,12 @@ class VehicleModuleService {
 
     static activeShield(actor) {
         return this.shieldModules(actor)
-            .filter(item => this.itemHp(item) > 0)
+            .filter(item => this.isOperationalShipModule(item))
             .sort((a, b) => Number(this.isEquippedShipModule(b)) - Number(this.isEquippedShipModule(a)) || this.itemHp(b) - this.itemHp(a))[0] || null;
     }
 
     static findModule(actor, pattern) {
-        return Array.from(actor?.items ?? []).find(item => this.isEquippedShipModule(item) && pattern.test(item.name || "") && this.itemMaxHp(item) > 0);
+        return Array.from(actor?.items ?? []).find(item => this.isOperationalShipModule(item) && pattern.test(item.name || ""));
     }
 
     static firstHealthyHull(actor) {
@@ -562,7 +612,19 @@ class VehicleModuleService {
     }
 
     static heatSink(actor) {
-        return Array.from(actor?.items ?? []).find(item => /heat sink/i.test(item.name || "") && Number(item.system?.quantity ?? 1) > 0);
+        return Array.from(actor?.items ?? []).find(item => {
+            if (!/heat sink/i.test(item.name || "")) return false;
+            if (Number(item.system?.quantity ?? 1) <= 0) return false;
+            if (item.system && Object.prototype.hasOwnProperty.call(item.system, "equipped") && item.system.equipped !== true) return false;
+            if (this.itemMaxHp(item) > 0 && this.itemHp(item) <= 0) return false;
+            return true;
+        });
+    }
+
+    static requireOperationalModule(actor, pattern, label) {
+        const item = this.findModule(actor, pattern);
+        if (!item) throw new Error(`${label} is offline, unequipped, destroyed, or missing. ${label} cannot be used.`);
+        return item;
     }
 
     static hydrogenFuel(actor) {
@@ -572,6 +634,7 @@ class VehicleModuleService {
     static async consumeHeatSink(actor) {
         const heatSink = this.heatSink(actor);
         if (!heatSink) return false;
+        if (this.isShipModuleItem(heatSink)) this.assertOperationalShipModule(heatSink, "Heat Sink");
         const quantity = Number(heatSink.system?.quantity ?? 1);
         if (quantity > 1) await heatSink.update({ "system.quantity": quantity - 1 });
         else await heatSink.delete();
@@ -953,14 +1016,13 @@ class VehicleDamageService {
 
         let remaining = damage;
         if (context === "fuel") {
-            const fuelScoop = actor.items.get(payload.targetModule) || VehicleModuleService.findModule(actor, /fuel scoop/i);
-            if (!fuelScoop) throw new Error("No Fuel Scoop module found for fuel scooping damage.");
+            const fuelScoop = VehicleModuleService.selectedOperationalModule(actor, payload.targetModule, "Fuel Scoop") || VehicleModuleService.requireOperationalModule(actor, /fuel scoop/i, "Fuel Scoop");
             remaining = await this.applyToModule(state, fuelScoop, remaining);
             if (remaining > 0) await this.applyCarryover(state, remaining, fuelScoop.name);
         } else if (context === "mining") {
             const shield = VehicleModuleService.activeShield(actor);
             const hull = VehicleModuleService.firstHealthyHull(actor);
-            const selected = payload.targetModule && payload.targetModule !== "evenly" ? actor.items.get(payload.targetModule) : null;
+            const selected = VehicleModuleService.selectedOperationalModule(actor, payload.targetModule, "Mining damage target");
             const target = selected || VehicleModuleService.findModule(actor, /refinery/i) || shield || hull;
             if (target) {
                 remaining = await this.applyToModule(state, target, remaining);
@@ -970,7 +1032,7 @@ class VehicleDamageService {
             }
         } else {
             const shield = VehicleModuleService.activeShield(actor);
-            const selected = payload.targetModule && payload.targetModule !== "evenly" ? actor.items.get(payload.targetModule) : null;
+            const selected = VehicleModuleService.selectedOperationalModule(actor, payload.targetModule, "Damage target");
             const shieldFirst = shield && (!payload.targetModule || payload.targetModule === shield.id);
             if (shieldFirst) {
                 const before = VehicleModuleService.itemHp(shield);
@@ -1011,6 +1073,7 @@ class VehicleDamageService {
 
     static async applyToModule(state, module, amount) {
         if (!module || amount <= 0 || VehicleModuleService.itemHp(module) <= 0) return amount;
+        VehicleModuleService.assertOperationalShipModule(module, "Damage target");
         const before = VehicleModuleService.itemHp(module);
         const dealt = Math.min(before, amount);
         const after = before - dealt;
@@ -1199,6 +1262,7 @@ class VehicleScanService {
         if (!game.settings.get(FSA_MODULE_ID, "vehicleOpsScansEnabled")) throw new Error("Vehicle scans are disabled.");
         const { actor } = VehicleTargetResolver.resolve(payload);
         if (!actor || actor.type !== "vehicle") throw new Error("Selected vehicle not found.");
+        VehicleModuleService.requireOperationalModule(actor, /scanner suite/i, "Scanner Suite");
         const scanType = ["tactical", "manifest", "wake"].includes(payload.scanType) ? payload.scanType : "tactical";
         const content = scanType === "manifest" ? this.manifest(actor) : scanType === "wake" ? this.wake(actor, payload.destination) : this.tactical(actor);
         await VehicleChatCardService.create({ user: userId, speaker: { alias: "Full Speed Ahead Ship Scanner" }, content });
@@ -1285,6 +1349,7 @@ class VehicleFuelService {
     static async grant(payload, userId) {
         const { actor } = VehicleTargetResolver.resolve(payload);
         if (!actor || actor.type !== "vehicle") throw new Error("Selected vehicle not found.");
+        VehicleModuleService.requireOperationalModule(actor, /fuel scoop/i, "Fuel Scoop");
         const amount = Math.floor(Math.max(0, Number(payload.quantity || 0)));
         if (!amount) throw new Error("Enter the Hydrogen Fuel amount scooped.");
         const hydrogen = await TradeHubIntegrationAdapter.hydrogenFuelData();
@@ -1368,7 +1433,7 @@ class VehicleSheetToolService {
                 insure: {
                     label: insured ? "Cancel Coverage" : "Insure My Vehicle",
                     callback: () => {
-                        if (!insured && codeRequired) return this.promptInsuranceCode(actor);
+                        if (!insured && TradeHubIntegrationAdapter.insuranceConfirmationRequired()) return this.promptInsuranceCode(actor);
                         VehicleOperationsSocketService.request("shipInsurance", { ...this.actorPayload(actor), insured: !insured, code: "" });
                     }
                 },
@@ -2189,7 +2254,7 @@ Hooks.on("deleteItem", async (item, options, _userId) => {
 Hooks.on("updateItem", async (item, changes, options) => {
     if (await maybeHandleManualPowerCoreStateChange(item, changes, options)) return;
     if (!shouldScheduleVehicleModuleSync(item, options)) return;
-    const relevant = ["system.equipped", "system.hp.max", "system.armor.value", "system.ac.value", "system.price", "system.price.value", "name"].some(path => foundry.utils.hasProperty(changes, path) || Object.prototype.hasOwnProperty.call(changes, path));
+    const relevant = ["system.equipped", "system.hp", "system.hp.value", "system.hp.max", "system.armor.value", "system.ac.value", "system.price", "system.price.value", "name"].some(path => foundry.utils.hasProperty(changes, path) || Object.prototype.hasOwnProperty.call(changes, path));
     if (relevant) VehicleModuleService.scheduleStructuralSync(item.parent, "Module changed");
 });
 

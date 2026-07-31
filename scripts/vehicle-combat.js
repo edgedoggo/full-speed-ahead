@@ -37,36 +37,75 @@ uniform vec4 outlineColor;
 uniform vec2 texelSize;
 uniform float thickness;
 uniform float alpha;
+uniform float time;
 
 float sampleAlpha(vec2 coord) {
     if (coord.x < 0.0 || coord.x > 1.0 || coord.y < 0.0 || coord.y > 1.0) return 0.0;
     return texture2D(uSampler, coord).a;
 }
 
+float alphaAtRadius(float radius) {
+    vec2 offset = texelSize * radius;
+    vec2 diag = offset * 0.70710678;
+    vec2 halfDiag = offset * 0.38268343;
+    float a = 0.0;
+
+    a = max(a, sampleAlpha(vTextureCoord + vec2(offset.x, 0.0)));
+    a = max(a, sampleAlpha(vTextureCoord + vec2(-offset.x, 0.0)));
+    a = max(a, sampleAlpha(vTextureCoord + vec2(0.0, offset.y)));
+    a = max(a, sampleAlpha(vTextureCoord + vec2(0.0, -offset.y)));
+    a = max(a, sampleAlpha(vTextureCoord + diag));
+    a = max(a, sampleAlpha(vTextureCoord - diag));
+    a = max(a, sampleAlpha(vTextureCoord + vec2(diag.x, -diag.y)));
+    a = max(a, sampleAlpha(vTextureCoord + vec2(-diag.x, diag.y)));
+    a = max(a, sampleAlpha(vTextureCoord + vec2(offset.x, halfDiag.y)) * 0.82);
+    a = max(a, sampleAlpha(vTextureCoord + vec2(offset.x, -halfDiag.y)) * 0.82);
+    a = max(a, sampleAlpha(vTextureCoord + vec2(-offset.x, halfDiag.y)) * 0.82);
+    a = max(a, sampleAlpha(vTextureCoord + vec2(-offset.x, -halfDiag.y)) * 0.82);
+    a = max(a, sampleAlpha(vTextureCoord + vec2(halfDiag.x, offset.y)) * 0.82);
+    a = max(a, sampleAlpha(vTextureCoord + vec2(-halfDiag.x, offset.y)) * 0.82);
+    a = max(a, sampleAlpha(vTextureCoord + vec2(halfDiag.x, -offset.y)) * 0.82);
+    a = max(a, sampleAlpha(vTextureCoord + vec2(-halfDiag.x, -offset.y)) * 0.82);
+
+    return a;
+}
+
+float noise(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+}
+
 void main(void) {
     vec4 base = texture2D(uSampler, vTextureCoord);
-    float neighborAlpha = 0.0;
+    float innerAlpha = 0.0;
+    float outerAlpha = 0.0;
+    float innerThickness = max(thickness, 1.0);
+    float outerThickness = innerThickness * 3.15;
 
-    for (int ring = 1; ring <= 18; ring++) {
+    for (int ring = 1; ring <= 28; ring++) {
         float radius = float(ring);
-        if (radius <= thickness) {
-            vec2 offset = texelSize * radius;
-            float falloff = 1.0 - ((radius - 1.0) / max(thickness, 1.0));
-            neighborAlpha = max(neighborAlpha, sampleAlpha(vTextureCoord + vec2(offset.x, 0.0)) * falloff);
-            neighborAlpha = max(neighborAlpha, sampleAlpha(vTextureCoord + vec2(-offset.x, 0.0)) * falloff);
-            neighborAlpha = max(neighborAlpha, sampleAlpha(vTextureCoord + vec2(0.0, offset.y)) * falloff);
-            neighborAlpha = max(neighborAlpha, sampleAlpha(vTextureCoord + vec2(0.0, -offset.y)) * falloff);
-            neighborAlpha = max(neighborAlpha, sampleAlpha(vTextureCoord + vec2(offset.x, offset.y)) * falloff);
-            neighborAlpha = max(neighborAlpha, sampleAlpha(vTextureCoord + vec2(-offset.x, offset.y)) * falloff);
-            neighborAlpha = max(neighborAlpha, sampleAlpha(vTextureCoord + vec2(offset.x, -offset.y)) * falloff);
-            neighborAlpha = max(neighborAlpha, sampleAlpha(vTextureCoord + vec2(-offset.x, -offset.y)) * falloff);
+        if (radius <= outerThickness) {
+            float sampled = alphaAtRadius(radius);
+            if (radius <= innerThickness) {
+                float innerFalloff = pow(1.0 - ((radius - 1.0) / innerThickness), 0.9);
+                innerAlpha = max(innerAlpha, sampled * innerFalloff);
+            }
+            float outerFalloff = pow(1.0 - ((radius - 1.0) / outerThickness), 1.75);
+            outerAlpha = max(outerAlpha, sampled * outerFalloff);
         }
     }
 
-    float outline = max(neighborAlpha - base.a, 0.0);
-    float glow = smoothstep(0.0, 0.7, outline) * (1.0 - base.a);
-    vec3 color = mix(base.rgb, outlineColor.rgb, glow);
-    gl_FragColor = vec4(color, max(base.a, outlineColor.a * alpha * glow));
+    float outside = 1.0 - base.a;
+    float rim = smoothstep(0.04, 0.42, max(innerAlpha - base.a, 0.0)) * outside;
+    float aura = smoothstep(0.02, 0.72, max(outerAlpha - base.a, 0.0)) * outside;
+    float shimmer = 0.9 + 0.1 * sin((vTextureCoord.x * 29.0) + (vTextureCoord.y * 37.0) + (time * 1.65));
+    float grain = 0.94 + 0.06 * noise(floor(vTextureCoord * 96.0) + floor(time * 5.0));
+    aura *= shimmer * grain;
+
+    vec3 hotColor = mix(outlineColor.rgb, vec3(1.0), rim * 0.36);
+    float glowMix = clamp((rim * 0.72) + (aura * 0.18), 0.0, 1.0);
+    vec3 color = mix(base.rgb, hotColor, glowMix);
+    float glowAlpha = outlineColor.a * alpha * ((rim * 0.9) + (aura * 0.38));
+    gl_FragColor = vec4(color, max(base.a, glowAlpha));
 }
 `;
 const VEHICLE_CREW_PATHS = [
@@ -444,6 +483,7 @@ function getVehicleShieldStatus(actor) {
 
     const type = getBracketedModuleType(shieldModule.name);
     const { hp } = getItemHpInfo(shieldModule);
+    if (shieldModule.system?.equipped !== true) return { online: false, reason: "unequipped", hp, type };
     if (!type || !SHIELD_COLORS[type]) return { online: false, reason: "invalid-type", hp, type };
     return { online: hp > 0, hp, type };
 }
@@ -453,15 +493,20 @@ function getVehicleMorphogeneticStatus(actor) {
     if (!morphogeneticModule) return { online: false, reason: "missing" };
 
     const { hp, hasHp } = getItemHpInfo(morphogeneticModule);
+    if (morphogeneticModule.system?.equipped !== true) return { online: false, reason: "unequipped", hp, hasHp };
     return { online: hasHp ? hp > 0 : true, hp, hasHp };
 }
 
 function findVehicleShieldGenerator(actor) {
-    return Array.from(actor?.items ?? []).find(item => isVehicleShieldItem(item));
+    return Array.from(actor?.items ?? [])
+        .filter(item => isVehicleShieldItem(item))
+        .sort((a, b) => Number(b.system?.equipped === true) - Number(a.system?.equipped === true) || getItemHpInfo(b).hp - getItemHpInfo(a).hp)[0] || null;
 }
 
 function findVehicleMorphogeneticField(actor) {
-    return Array.from(actor?.items ?? []).find(item => isVehicleMorphogeneticItem(item));
+    return Array.from(actor?.items ?? [])
+        .filter(item => isVehicleMorphogeneticItem(item))
+        .sort((a, b) => Number(b.system?.equipped === true) - Number(a.system?.equipped === true) || getItemHpInfo(b).hp - getItemHpInfo(a).hp)[0] || null;
 }
 
 function isVehicleShieldRelevantItem(item) {
@@ -609,9 +654,10 @@ function drawProtectionEffect(state, now) {
     if (filter?.uniforms) {
         filter.uniforms.outlineColor = numberToRgba(colors.primary);
         filter.uniforms.texelSize = getProtectionTexelSize(object, token);
-        filter.uniforms.thickness = morphOnline && shieldOnline ? 18 : 14;
-        filter.uniforms.alpha = 0.72 + activePulse * 0.18;
-        filter.padding = 48;
+        filter.uniforms.thickness = morphOnline && shieldOnline ? 6.8 : 5.8;
+        filter.uniforms.alpha = 0.68 + activePulse * 0.16;
+        filter.uniforms.time = (now / 1000) + state.phase;
+        filter.padding = 42;
     }
 }
 
@@ -619,10 +665,11 @@ function createProtectionOutlineFilter() {
     const filter = new PIXI.Filter(undefined, PROTECTION_OUTLINE_FRAGMENT, {
         outlineColor: [1, 1, 1, 1],
         texelSize: [0.01, 0.01],
-        thickness: 8,
-        alpha: 0.5
+        thickness: 5.8,
+        alpha: 0.68,
+        time: 0
     });
-    filter.padding = 32;
+    filter.padding = 42;
     filter.__fullSpeedAheadProtection = true;
     return filter;
 }
