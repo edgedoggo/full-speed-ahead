@@ -3,7 +3,6 @@
 const MODULE_ID = "full-speed-ahead";
 const CREW_COMBATANT_FLAG = "crewCombatant";
 const VEHICLE_COMBAT_OWNERSHIP_FLAG = "vehicleCombatOwnership";
-const DEFAULT_SHIP_BADGE = "icons/svg/wing.svg";
 const DEFAULT_SILHOUETTE = "icons/svg/mystery-man.svg";
 const SHIELD_FILTER_ID = "fullSpeedAheadVehicleShield";
 const MORPHOGENETIC_FILTER_ID = "fullSpeedAheadMorphogeneticField";
@@ -134,8 +133,11 @@ const CREW_ABILITY_KEYS = {
 };
 const processingCombatants = new Set();
 const activeProtectionEffects = new Map();
+const pendingVehicleCombatMovementOrigins = new Map();
+const pendingVehicleCombatMovementSpends = new Map();
 let protectionTicker = null;
 let lastCombatMovementWarningAt = 0;
+let activeVehicleCombatContextMenu = null;
 
 class FullSpeedAheadVehicleCombatConfig extends FormApplication {
     static get defaultOptions() {
@@ -153,7 +155,6 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
             vehicleCombatCrewMode: game.settings.get(MODULE_ID, "vehicleCombatCrewMode"),
             vehicleCrewMatchMode: game.settings.get(MODULE_ID, "vehicleCrewMatchMode"),
             vehicleCombatDisplayMode: game.settings.get(MODULE_ID, "vehicleCombatDisplayMode"),
-            vehicleCombatShipIcon: game.settings.get(MODULE_ID, "vehicleCombatShipIcon"),
             vehicleCombatHideUnmatchedCrewPhotos: safeGetModuleSetting("vehicleCombatHideUnmatchedCrewPhotos", true),
             vehicleCombatSpeedManaged: safeGetModuleSetting("vehicleCombatSpeedManaged", true),
             vehicleCombatSharedMovement: game.settings.get(MODULE_ID, "vehicleCombatSharedMovement"),
@@ -203,25 +204,10 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
         };
     }
 
-    activateListeners(html) {
-        super.activateListeners(html);
-
-        html.find('[data-action="browse-ship-icon"]').on("click", event => {
-            event.preventDefault();
-            const input = html.find('[name="vehicleCombatShipIcon"]');
-            new FilePicker({
-                type: "image",
-                current: input.val() || "",
-                callback: path => input.val(path).trigger("input")
-            }).render(true);
-        });
-    }
-
     async _updateObject(event, formData) {
         await game.settings.set(MODULE_ID, "vehicleCombatCrewMode", Boolean(formData.vehicleCombatCrewMode));
         await game.settings.set(MODULE_ID, "vehicleCrewMatchMode", getValidCrewMatchMode(formData.vehicleCrewMatchMode));
         await game.settings.set(MODULE_ID, "vehicleCombatDisplayMode", String(formData.vehicleCombatDisplayMode || VEHICLE_COMBAT_DISPLAY_MODES.FULL));
-        await game.settings.set(MODULE_ID, "vehicleCombatShipIcon", String(formData.vehicleCombatShipIcon || DEFAULT_SHIP_BADGE).trim());
         await game.settings.set(MODULE_ID, "vehicleCombatHideUnmatchedCrewPhotos", Boolean(formData.vehicleCombatHideUnmatchedCrewPhotos));
         await game.settings.set(MODULE_ID, "vehicleCombatSpeedManaged", Boolean(formData.vehicleCombatSpeedManaged));
         await game.settings.set(MODULE_ID, "vehicleCombatSharedMovement", Boolean(formData.vehicleCombatSharedMovement));
@@ -287,22 +273,13 @@ Hooks.once("init", () => {
 
     registerVehicleCombatSetting("vehicleCombatDisplayMode", {
         name: "Vehicle Combat Display Mode",
-        hint: "Full shows vessel and character portraits plus Vessel / Character names. Simple shows a ship badge on the crew portrait.",
+        hint: "Full shows vessel and character portraits plus Vessel / Character names. Simple uses a tighter crew display.",
         type: String,
         choices: {
             [VEHICLE_COMBAT_DISPLAY_MODES.FULL]: "Full Combat Order",
             [VEHICLE_COMBAT_DISPLAY_MODES.SIMPLE]: "Simple Combat Order"
         },
         default: VEHICLE_COMBAT_DISPLAY_MODES.FULL,
-        config: false,
-        onChange: () => ui.combat?.render(true)
-    });
-
-    registerVehicleCombatSetting("vehicleCombatShipIcon", {
-        name: "Vehicle Combat Ship Badge Icon",
-        hint: "Image used as the ship badge on crew portraits.",
-        type: String,
-        default: DEFAULT_SHIP_BADGE,
         config: false,
         onChange: () => ui.combat?.render(true)
     });
@@ -391,7 +368,10 @@ Hooks.on("deleteCombat", combat => restoreVehicleCombatOwnership(combat));
 Hooks.on("updateCombat", (combat, changes) => {
     const changed = changes ?? {};
     const movementChanged = Boolean(foundry.utils.getProperty(changed, `flags.${MODULE_ID}.${VEHICLE_COMBAT_MOVEMENT_FLAG}`));
-    if (Object.prototype.hasOwnProperty.call(changed, "round") || movementChanged) ui.combat?.render(true);
+    if (Object.prototype.hasOwnProperty.call(changed, "round") || movementChanged) {
+        clearPendingVehicleCombatMovementForCombat(combat);
+        ui.combat?.render(true);
+    }
 });
 Hooks.on("preUpdateToken", (tokenDocument, changes, options) => guardVehicleCombatMovement(tokenDocument, changes, options));
 Hooks.on("updateToken", (tokenDocument, changes, options, userId) => recordVehicleCombatMovement(tokenDocument, changes, options, userId));
@@ -495,14 +475,19 @@ function getCombatForScene(scene, combatOverride = null) {
 
 function guardVehicleCombatMovement(tokenDocument, changes, options = {}) {
     const gate = getVehicleCombatMovementGate(tokenDocument, changes, options);
-    if (!gate.allowed) return;
-    const state = getCombatMovementStateForTokenOrActor(tokenDocument);
+    if (!gate.allowed) {
+        if (gate.reason === "wrong-turn-vehicle") warnVehicleCombatWrongTurnVehicle(gate);
+        return gate.block ? false : undefined;
+    }
+    const state = getCombatMovementStateForTokenOrActor(tokenDocument, gate.combat);
     if (!state) return;
 
     const distance = measureTokenDocumentMovement(tokenDocument, changes);
     if (distance <= 0) return;
     if (distance <= state.remaining + 0.01) {
-        options.fullSpeedAheadCombatOrigin = { x: tokenDocument.x, y: tokenDocument.y };
+        const origin = { x: tokenDocument.x, y: tokenDocument.y };
+        options.fullSpeedAheadCombatOrigin = origin;
+        pendingVehicleCombatMovementOrigins.set(getTokenMovementOriginKey(tokenDocument), origin);
         return;
     }
 
@@ -512,17 +497,21 @@ function guardVehicleCombatMovement(tokenDocument, changes, options = {}) {
 
 async function recordVehicleCombatMovement(tokenDocument, changes, options = {}, userId = null) {
     if (userId && userId !== game.user.id) return;
-    if (!shouldManageVehicleCombatMovement(tokenDocument, changes, options)) return;
-    const state = getCombatMovementStateForTokenOrActor(tokenDocument);
+    const gate = getVehicleCombatMovementGate(tokenDocument, changes, options);
+    if (!gate.allowed) return;
+    const state = getCombatMovementStateForTokenOrActor(tokenDocument, gate.combat);
     if (!state) return;
 
-    const origin = options?.fullSpeedAheadCombatOrigin;
+    const originKey = getTokenMovementOriginKey(tokenDocument);
+    const origin = options?.fullSpeedAheadCombatOrigin ?? pendingVehicleCombatMovementOrigins.get(originKey);
+    pendingVehicleCombatMovementOrigins.delete(originKey);
     const measuredDistance = origin
         ? measureTokenDocumentMovementBetween(tokenDocument, origin, { x: tokenDocument.x, y: tokenDocument.y })
         : measureTokenDocumentMovement(tokenDocument, changes);
     if (measuredDistance <= 0) return;
 
     if (!game.user.isGM) {
+        addPendingVehicleCombatMovementSpend(state, measuredDistance);
         game.socket?.emit?.(`module.${MODULE_ID}`, {
             type: "vehicleCombatMovementSpend",
             tokenUuid: tokenDocument.uuid,
@@ -582,9 +571,14 @@ function getVehicleCombatMovementGate(tokenDocument, changes, options = {}) {
     if (!Object.prototype.hasOwnProperty.call(changes ?? {}, "x") && !Object.prototype.hasOwnProperty.call(changes ?? {}, "y")) return { allowed: false, reason: "not-movement" };
     const combat = getCombatForScene(tokenDocument.parent);
     if (!combat) return { allowed: false, reason: "no-combat" };
-    if (!getVehicleCombatMovementIdentity(tokenDocument.actor, tokenDocument, combat)) return { allowed: false, reason: "not-in-combat" };
+    const identity = getVehicleCombatMovementIdentity(tokenDocument.actor, tokenDocument, combat);
+    if (!identity) return { allowed: false, reason: "not-in-combat" };
     const started = Boolean(combat.started) || Number(combat.round) > 0;
     if (!started) return { allowed: false, reason: "not-started" };
+    const activeIdentity = getActiveCombatVehicleMovementIdentity(combat);
+    if (activeIdentity && activeIdentity.key !== identity.key) {
+        return { allowed: false, reason: "wrong-turn-vehicle", block: true, combat, identity, activeIdentity };
+    }
     return { allowed: true, reason: "started", combat };
 }
 
@@ -610,7 +604,8 @@ function getCombatMovementStateForTokenOrActor(tokenOrActor, combatOverride = nu
 
     const ledger = getCombatMovementLedger(combat);
     const existing = ledger.vehicles[identity.key] ?? {};
-    const spent = clampVehicleCombatNumber(existing.spent, 0, speed, 0);
+    const pendingSpent = game.user?.isGM ? 0 : getPendingVehicleCombatMovementSpend(combat, identity.key);
+    const spent = clampVehicleCombatNumber((Number(existing.spent) || 0) + pendingSpent, 0, speed, 0);
     return {
         combat,
         round: Number(combat.round) || 0,
@@ -623,20 +618,87 @@ function getCombatMovementStateForTokenOrActor(tokenOrActor, combatOverride = nu
     };
 }
 
+function getTokenMovementOriginKey(tokenDocument) {
+    return tokenDocument?.uuid ?? `${tokenDocument?.parent?.id ?? canvas?.scene?.id ?? "scene"}:${tokenDocument?.id ?? ""}`;
+}
+
+function getPendingVehicleCombatMovementKey(combat, vehicleKey) {
+    return `${combat?.id ?? "combat"}:${vehicleKey}`;
+}
+
+function getPendingVehicleCombatMovementSpend(combat, vehicleKey) {
+    return Number(pendingVehicleCombatMovementSpends.get(getPendingVehicleCombatMovementKey(combat, vehicleKey)) || 0);
+}
+
+function addPendingVehicleCombatMovementSpend(state, distance) {
+    const key = getPendingVehicleCombatMovementKey(state.combat, state.vehicleKey);
+    const current = Number(pendingVehicleCombatMovementSpends.get(key) || 0);
+    pendingVehicleCombatMovementSpends.set(key, Math.max(0, current + Math.max(0, Number(distance) || 0)));
+    refreshCombatMovementDisplays();
+}
+
+function clearPendingVehicleCombatMovementForCombat(combat) {
+    const prefix = `${combat?.id ?? ""}:`;
+    for (const key of Array.from(pendingVehicleCombatMovementSpends.keys())) {
+        if (key.startsWith(prefix)) pendingVehicleCombatMovementSpends.delete(key);
+    }
+}
+
 function getVehicleCombatMovementIdentity(actor, tokenDocument, combat) {
     const actorUuid = actor?.uuid ?? "";
     for (const combatant of combat.combatants ?? []) {
-        if (combatant.actor?.uuid === actorUuid) {
-            return { key: actorUuid || actor.id, name: actor.name };
+        const data = combatant.getFlag(MODULE_ID, CREW_COMBATANT_FLAG);
+        if (data && crewDataMatchesVehicleTokenOrActor(data, actor, tokenDocument)) {
+            return getVehicleCombatMovementIdentityFromCrewData(data, actor);
         }
 
-        const data = combatant.getFlag(MODULE_ID, CREW_COMBATANT_FLAG);
-        if (!data) continue;
-        if (data.vehicleActorUuid === actorUuid || data.vehicleActorId === actor.id || data.vehicleTokenId === tokenDocument?.id) {
-            return { key: data.vehicleActorUuid || actorUuid || data.vehicleActorId || actor.id, name: data.vehicleName || actor.name };
+        if (!data && combatant.actor?.uuid === actorUuid) {
+            const combatantTokenUuid = combatant.token?.uuid ?? null;
+            const combatantTokenId = combatant.token?.id ?? combatant.tokenId ?? null;
+            const movedTokenMatches = !tokenDocument || !combatantTokenId || combatantTokenId === tokenDocument.id;
+            if (movedTokenMatches) {
+                return {
+                    key: combatantTokenUuid || tokenDocument?.uuid || actorUuid || actor.id,
+                    name: actor.name,
+                    vehicleTokenId: combatantTokenId || tokenDocument?.id || null
+                };
+            }
         }
     }
     return null;
+}
+
+function getActiveCombatVehicleMovementIdentity(combat) {
+    const combatant = combat?.combatant ?? combat?.turns?.[combat?.turn] ?? null;
+    if (!combatant) return null;
+
+    const data = combatant.getFlag(MODULE_ID, CREW_COMBATANT_FLAG);
+    if (data) return getVehicleCombatMovementIdentityFromCrewData(data, combatant.actor);
+
+    const actor = combatant.actor;
+    if (!isVehicleActor(actor)) return null;
+    return {
+        key: combatant.token?.uuid || actor.uuid || actor.id,
+        name: actor.name,
+        vehicleTokenId: combatant.token?.id ?? combatant.tokenId ?? null
+    };
+}
+
+function getVehicleCombatMovementIdentityFromCrewData(data, fallbackActor = null) {
+    return {
+        key: data.vehicleTokenUuid || data.vehicleTokenId || data.vehicleActorUuid || data.vehicleActorId || fallbackActor?.uuid || fallbackActor?.id,
+        name: data.vehicleName || fallbackActor?.name || "Vehicle",
+        vehicleTokenId: data.vehicleTokenId ?? null
+    };
+}
+
+function crewDataMatchesVehicleTokenOrActor(data, actor, tokenDocument = null) {
+    if (!data || !actor) return false;
+    if (tokenDocument) {
+        if (data.vehicleTokenUuid && data.vehicleTokenUuid === tokenDocument.uuid) return true;
+        if (data.vehicleTokenId && data.vehicleTokenId === tokenDocument.id) return true;
+    }
+    return data.vehicleActorUuid === actor.uuid || data.vehicleActorId === actor.id;
 }
 
 function getCombatMovementLedger(combat) {
@@ -704,6 +766,13 @@ function warnVehicleCombatMovementExceeded(state) {
     if (now - lastCombatMovementWarningAt < 1500) return;
     lastCombatMovementWarningAt = now;
     ui.notifications.warn(`${state.vehicleName} has ${Math.round(state.remaining * 100) / 100} ${state.unit} of shared combat movement remaining this round.`);
+}
+
+function warnVehicleCombatWrongTurnVehicle(gate) {
+    const now = Date.now();
+    if (now - lastCombatMovementWarningAt < 1500) return;
+    lastCombatMovementWarningAt = now;
+    ui.notifications.warn(`It is ${gate.activeIdentity?.name || "another vehicle"}'s combat movement turn. ${gate.identity?.name || "That vehicle"} cannot spend movement right now.`);
 }
 
 function registerDragRulerCombatSpeedProvider(ReadySpeedProvider = null) {
@@ -1460,7 +1529,6 @@ function renderVehicleCrewTracker(app, html) {
     if (!combat) return;
 
     const mode = game.settings.get(MODULE_ID, "vehicleCombatDisplayMode");
-    const badgeIcon = game.settings.get(MODULE_ID, "vehicleCombatShipIcon") || DEFAULT_SHIP_BADGE;
     const hideUnmatchedCrewPhotos = Boolean(safeGetModuleSetting("vehicleCombatHideUnmatchedCrewPhotos", true));
 
     for (const combatant of combat.combatants) {
@@ -1480,7 +1548,7 @@ function renderVehicleCrewTracker(app, html) {
         const crewName = combatant.name || "Crew";
         row.find(".full-speed-ahead-combat-row").remove();
         const controls = detachCombatantControls(row);
-        row.empty().append(buildVehicleCombatantRow({ combatant, data, mode, badgeIcon, crewName, controls, hideUnmatchedCrewPhotos }));
+        row.empty().append(buildVehicleCombatantRow({ combatant, data, crewName, controls, hideUnmatchedCrewPhotos }));
 
         row.off("dblclick.fullSpeedAheadVehicleCombat").on("dblclick.fullSpeedAheadVehicleCombat", () => {
             const token = canvas.tokens?.get(data.vehicleTokenId);
@@ -1498,14 +1566,10 @@ function renderVehicleCrewTracker(app, html) {
         row.off("contextmenu.fullSpeedAheadVehicleCombat").on("contextmenu.fullSpeedAheadVehicleCombat", event => {
             event.preventDefault();
             event.stopPropagation();
-            removeVehicleCrewCombatant(combatant);
+            showVehicleCrewContextMenu(event, combatant, data);
         });
 
-        row.find(".full-speed-ahead-combat-initiative").off("click.fullSpeedAheadVehicleCombat").on("click.fullSpeedAheadVehicleCombat", event => {
-            event.preventDefault();
-            event.stopPropagation();
-            editVehicleCrewCombatantInitiative(combatant, $(event.currentTarget));
-        });
+        row.find(".full-speed-ahead-combat-initiative").off("click.fullSpeedAheadVehicleCombat");
 
     }
 }
@@ -1539,11 +1603,10 @@ function canOpenVehicleSheet(actor) {
     return actor.testUserPermission?.(game.user, "OWNER") ?? false;
 }
 
-function buildVehicleCombatantRow({ combatant, data, mode, badgeIcon, crewName, controls, hideUnmatchedCrewPhotos = true }) {
-    const full = mode === VEHICLE_COMBAT_DISPLAY_MODES.FULL;
-    const row = $(`<div class="full-speed-ahead-combat-row"></div>`);
+function buildVehicleCombatantRow({ combatant, data, crewName, controls, hideUnmatchedCrewPhotos = true }) {
     const crewImg = combatant.img || DEFAULT_SILHOUETTE;
     const hideCrewPhoto = Boolean(data.artificial && hideUnmatchedCrewPhotos);
+    const row = $(`<div class="full-speed-ahead-combat-row ${hideCrewPhoto ? "full-speed-ahead-combat-row-no-crew-photo" : ""}"></div>`);
     const movement = getCombatMovementStateForCrewData(data);
     const movementBar = buildVehicleMovementBar(movement);
 
@@ -1554,11 +1617,10 @@ function buildVehicleCombatantRow({ combatant, data, mode, badgeIcon, crewName, 
     const crewPortrait = $(`<div class="full-speed-ahead-combat-crew-wrap ${hideCrewPhoto ? "full-speed-ahead-combat-crew-empty" : ""}"></div>`);
     if (!hideCrewPhoto) {
         crewPortrait.append(`<img class="full-speed-ahead-combat-crew" src="${escapeHtml(crewImg)}" alt="${escapeHtml(crewName)}">`);
-        if (!full) crewPortrait.append(`<img class="full-speed-ahead-ship-badge" src="${escapeHtml(badgeIcon)}" alt="">`);
     }
 
     row.append(vessel);
-    row.append(crewPortrait);
+    if (!hideCrewPhoto) row.append(crewPortrait);
     row.append(`<div class="full-speed-ahead-combat-name">
         <h4>${escapeHtml(crewName)}</h4>
         <div class="full-speed-ahead-combat-role">${escapeHtml(data.vehicleName)} / ${escapeHtml(data.role || "Crew")}</div>
@@ -1571,45 +1633,91 @@ function buildVehicleCombatantRow({ combatant, data, mode, badgeIcon, crewName, 
 function buildVehicleCombatantInitiative(combatant) {
     const raw = Number(combatant?.initiative);
     const label = Number.isFinite(raw) ? raw.toFixed(2).replace(/\.?0+$/u, "") : "-";
-    const title = game.user.isGM ? "Click to update initiative. Right-click row to remove from combat." : "Initiative";
-    return $(`<button type="button" class="full-speed-ahead-combat-initiative" title="${escapeHtml(title)}">${escapeHtml(label)}</button>`);
+    const title = game.user.isGM ? "Right-click row for combatant actions." : "Initiative";
+    return $(`<div class="full-speed-ahead-combat-initiative" title="${escapeHtml(title)}">${escapeHtml(label)}</div>`);
 }
 
-async function editVehicleCrewCombatantInitiative(combatant, button) {
-    if (!combatant || !game.user.isGM) return;
-    if (button.find("input").length) return;
+function closeVehicleCrewContextMenu() {
+    activeVehicleCombatContextMenu?.remove();
+    activeVehicleCombatContextMenu = null;
+    $(document).off(".fullSpeedAheadVehicleCombatMenu");
+}
 
-    const current = Number.isFinite(Number(combatant.initiative)) ? Number(combatant.initiative) : 0;
-    const input = $(`<input type="number" step="0.01" class="full-speed-ahead-combat-initiative-input">`).val(current);
-    button.empty().append(input);
-    input.trigger("focus").trigger("select");
-    let committed = false;
+function showVehicleCrewContextMenu(event, combatant, data) {
+    closeVehicleCrewContextMenu();
+    if (!combatant) return;
 
-    const commit = async () => {
-        if (committed) return;
-        committed = true;
-        const value = Number(input.val());
-        if (Number.isFinite(value)) {
+    const canManage = Boolean(game.user.isGM);
+    const menu = $(`<div class="full-speed-ahead-combat-context-menu"></div>`);
+    const actions = [
+        { icon: "fas fa-edit", label: "Update Combatant", handler: () => openVehicleCrewCombatantConfig(combatant), enabled: canManage },
+        { icon: "fas fa-undo", label: "Reset movement history", handler: () => resetVehicleCrewMovementHistory(data), enabled: canManage },
+        { icon: "fas fa-dice-d20", label: "Re-roll Initiative", handler: () => rerollVehicleCrewInitiative(combatant), enabled: canManage },
+        { icon: "fas fa-trash", label: "Remove Combatant", handler: () => removeVehicleCrewCombatant(combatant), enabled: canManage }
+    ];
+
+    for (const action of actions) {
+        const button = $(`<button type="button" ${action.enabled ? "" : "disabled"}>
+            <i class="${action.icon}"></i>
+            <span>${escapeHtml(action.label)}</span>
+        </button>`);
+        button.on("click", async clickEvent => {
+            clickEvent.preventDefault();
+            clickEvent.stopPropagation();
+            closeVehicleCrewContextMenu();
+            if (!action.enabled) return;
             try {
-                await combatant.update({ initiative: value });
+                await action.handler();
             } catch (error) {
-                ui.notifications.error(error.message || "Full Speed Ahead could not update initiative.");
+                ui.notifications.error(error.message || `Full Speed Ahead could not ${action.label.toLowerCase()}.`);
             }
-        }
-        ui.combat?.render(true);
-    };
+        });
+        menu.append(button);
+    }
 
-    input.on("keydown", async event => {
-        if (event.key === "Enter") {
-            event.preventDefault();
-            await commit();
-        } else if (event.key === "Escape") {
-            event.preventDefault();
-            committed = true;
-            ui.combat?.render(true);
-        }
-    });
-    input.on("blur", () => commit());
+    $("body").append(menu);
+    activeVehicleCombatContextMenu = menu;
+    const width = menu.outerWidth() || 260;
+    const height = menu.outerHeight() || 190;
+    const left = Math.min(event.clientX, window.innerWidth - width - 8);
+    const top = Math.min(event.clientY, window.innerHeight - height - 8);
+    menu.css({ left: Math.max(8, left), top: Math.max(8, top) });
+
+    setTimeout(() => {
+        $(document).on("mousedown.fullSpeedAheadVehicleCombatMenu keydown.fullSpeedAheadVehicleCombatMenu", closeEvent => {
+            if (closeEvent.type === "keydown" && closeEvent.key !== "Escape") return;
+            if (closeEvent.type === "mousedown" && $(closeEvent.target).closest(".full-speed-ahead-combat-context-menu").length) return;
+            closeVehicleCrewContextMenu();
+        });
+    }, 0);
+}
+
+function openVehicleCrewCombatantConfig(combatant) {
+    if (!combatant || !game.user.isGM) return;
+    if (typeof CombatantConfig === "function") return new CombatantConfig(combatant).render(true);
+    combatant.sheet?.render?.(true);
+}
+
+async function resetVehicleCrewMovementHistory(data) {
+    if (!game.user.isGM) return;
+    const state = getCombatMovementStateForCrewData(data);
+    if (!state) return ui.notifications.warn("Full Speed Ahead could not find active movement history for that vehicle.");
+    const ledger = getCombatMovementLedger(state.combat);
+    delete ledger.vehicles[state.vehicleKey];
+    await state.combat.setFlag(MODULE_ID, VEHICLE_COMBAT_MOVEMENT_FLAG, ledger);
+    refreshCombatMovementDisplays();
+}
+
+async function rerollVehicleCrewInitiative(combatant) {
+    if (!combatant || !game.user.isGM) return;
+    const combat = combatant.combat;
+    if (!combat) return;
+    if (typeof combat.rollInitiative === "function") {
+        await combat.rollInitiative([combatant.id], { updateTurn: true });
+    } else {
+        await combatant.rollInitiative?.();
+    }
+    ui.combat?.render(true);
 }
 
 async function removeVehicleCrewCombatant(combatant) {

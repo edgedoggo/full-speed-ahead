@@ -20,6 +20,12 @@
     width: 100%;
 }
 
+.full-speed-ahead-combat-row-no-crew-photo,
+#combat-tracker .full-speed-ahead-combat-row-no-crew-photo,
+.combat-tracker .full-speed-ahead-combat-row-no-crew-photo {
+    grid-template-columns: 42px minmax(0, 1fr) 42px max-content;
+}
+
 .full-speed-ahead-combat-vessel,
 #combat-tracker .full-speed-ahead-combat-vessel,
 .combat-tracker .full-speed-ahead-combat-vessel {
@@ -96,24 +102,6 @@
     width: 42px;
 }
 
-.full-speed-ahead-ship-badge,
-#combat-tracker .full-speed-ahead-ship-badge,
-.combat-tracker .full-speed-ahead-ship-badge {
-    background: rgb(20 20 20 / 86%);
-    border: 1px solid rgb(255 255 255 / 42%);
-    border-radius: 50%;
-    bottom: -4px;
-    box-shadow: 0 1px 4px #000;
-    filter: brightness(0) invert(1);
-    height: 15px;
-    object-fit: contain;
-    padding: 2px;
-    pointer-events: none;
-    position: absolute;
-    right: -5px;
-    width: 15px;
-}
-
 .full-speed-ahead-combat-name,
 #combat-tracker .full-speed-ahead-combat-name,
 .combat-tracker .full-speed-ahead-combat-name {
@@ -156,7 +144,6 @@
     border: 0;
     box-shadow: none;
     color: #f5f2df;
-    cursor: pointer;
     font-size: 14px;
     font-weight: 800;
     line-height: 1;
@@ -165,24 +152,6 @@
     padding: 0;
     text-align: right;
     text-shadow: 0 2px 4px #000;
-    width: 42px;
-}
-
-.full-speed-ahead-combat-initiative:hover,
-#combat-tracker .full-speed-ahead-combat-initiative:hover,
-.combat-tracker .full-speed-ahead-combat-initiative:hover {
-    color: #fff6b8;
-}
-
-.full-speed-ahead-combat-initiative-input,
-#combat-tracker .full-speed-ahead-combat-initiative-input,
-.combat-tracker .full-speed-ahead-combat-initiative-input {
-    font-size: 12px;
-    height: 22px;
-    margin: 0;
-    min-width: 0;
-    padding: 0 2px;
-    text-align: right;
     width: 42px;
 }
 
@@ -224,4 +193,54 @@
 .combat-tracker .full-speed-ahead-crew-combatant.full-speed-ahead-crew-artificial .full-speed-ahead-combat-crew {
     filter: grayscale(1);
     opacity: 0.9;
+}
+
+.full-speed-ahead-combat-context-menu {
+    background: rgb(20 20 18 / 96%);
+    border: 1px solid rgb(255 255 255 / 18%);
+    border-radius: 5px;
+    box-shadow: 0 6px 18px rgb(0 0 0 / 65%);
+    display: flex;
+    flex-direction: column;
+    min-width: 255px;
+    overflow: hidden;
+    padding: 4px;
+    position: fixed;
+    z-index: 100000;
+}
+
+.full-speed-ahead-combat-context-menu button {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: 3px;
+    box-shadow: none;
+    color: #f5f2df;
+    display: flex;
+    font-size: 16px;
+    font-weight: 800;
+    gap: 10px;
+    justify-content: flex-start;
+    line-height: 1.2;
+    margin: 0;
+    min-height: 38px;
+    padding: 7px 10px;
+    text-align: left;
+    text-shadow: 0 2px 4px #000;
+    width: 100%;
+}
+
+.full-speed-ahead-combat-context-menu button:hover:not(:disabled) {
+    background: rgb(255 255 255 / 10%);
+    color: #fff6b8;
+}
+
+.full-speed-ahead-combat-context-menu button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.full-speed-ahead-combat-context-menu i {
+    flex: 0 0 20px;
+    text-align: center;
 }
