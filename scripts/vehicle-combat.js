@@ -154,6 +154,7 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
             vehicleCrewMatchMode: game.settings.get(MODULE_ID, "vehicleCrewMatchMode"),
             vehicleCombatDisplayMode: game.settings.get(MODULE_ID, "vehicleCombatDisplayMode"),
             vehicleCombatShipIcon: game.settings.get(MODULE_ID, "vehicleCombatShipIcon"),
+            vehicleCombatHideUnmatchedCrewPhotos: safeGetModuleSetting("vehicleCombatHideUnmatchedCrewPhotos", true),
             vehicleCombatSpeedManaged: safeGetModuleSetting("vehicleCombatSpeedManaged", true),
             vehicleCombatSharedMovement: game.settings.get(MODULE_ID, "vehicleCombatSharedMovement"),
             vehicleCombatDebug: game.settings.get(MODULE_ID, "vehicleCombatDebug"),
@@ -221,6 +222,7 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
         await game.settings.set(MODULE_ID, "vehicleCrewMatchMode", getValidCrewMatchMode(formData.vehicleCrewMatchMode));
         await game.settings.set(MODULE_ID, "vehicleCombatDisplayMode", String(formData.vehicleCombatDisplayMode || VEHICLE_COMBAT_DISPLAY_MODES.FULL));
         await game.settings.set(MODULE_ID, "vehicleCombatShipIcon", String(formData.vehicleCombatShipIcon || DEFAULT_SHIP_BADGE).trim());
+        await game.settings.set(MODULE_ID, "vehicleCombatHideUnmatchedCrewPhotos", Boolean(formData.vehicleCombatHideUnmatchedCrewPhotos));
         await game.settings.set(MODULE_ID, "vehicleCombatSpeedManaged", Boolean(formData.vehicleCombatSpeedManaged));
         await game.settings.set(MODULE_ID, "vehicleCombatSharedMovement", Boolean(formData.vehicleCombatSharedMovement));
         await game.settings.set(MODULE_ID, "vehicleCombatDebug", Boolean(formData.vehicleCombatDebug));
@@ -305,11 +307,20 @@ Hooks.once("init", () => {
         onChange: () => ui.combat?.render(true)
     });
 
+    registerVehicleCombatSetting("vehicleCombatHideUnmatchedCrewPhotos", {
+        name: "Do not show photos for non matched crew",
+        hint: "Generated placeholder crew remain in combat by name, but their mystery portrait is hidden.",
+        type: Boolean,
+        default: true,
+        config: false,
+        onChange: () => ui.combat?.render(true)
+    });
+
     registerVehicleCombatSetting("vehicleCombatSpeedManaged", {
         name: "FSA Manages Combat Speed",
         hint: "Track and enforce vehicle combat movement during started combats.",
         type: Boolean,
-        default: false,
+        default: true,
         config: false,
         onChange: () => ui.combat?.render(true)
     });
@@ -371,7 +382,10 @@ Hooks.on("canvasReady", () => {
     stopAllProtectionEffects();
     syncVehicleShields();
 });
-Hooks.on("createCombatant", combatant => replaceVehicleCombatantWithCrew(combatant));
+Hooks.on("createCombatant", combatant => {
+    replaceVehicleCombatantWithCrew(combatant);
+    queueVehicleCrewDuplicateCleanup(combatant?.combat);
+});
 Hooks.on("renderCombatTracker", (app, html) => renderVehicleCrewTracker(app, html));
 Hooks.on("deleteCombat", combat => restoreVehicleCombatOwnership(combat));
 Hooks.on("updateCombat", (combat, changes) => {
@@ -459,16 +473,29 @@ function isVehicleCombatSharedMovementEnabled() {
 }
 
 function getStartedCombatForScene(scene, combatOverride = null) {
-    const combat = combatOverride ?? game.combat;
+    const combat = getCombatForScene(scene, combatOverride);
     if (!combat) return null;
     const started = Boolean(combat.started) || Number(combat.round) > 0;
     if (!started) return null;
-    if (scene?.id && combat.scene?.id && combat.scene.id !== scene.id) return null;
     return combat;
 }
 
+function getCombatForScene(scene, combatOverride = null) {
+    const sceneId = scene?.id ?? canvas?.scene?.id ?? null;
+    const candidates = [combatOverride, game.combat, ...(game.combats?.contents ?? [])]
+        .filter(combat => combat && (!sceneId || !combat.scene?.id || combat.scene.id === sceneId));
+    if (!candidates.length) return null;
+
+    const unique = Array.from(new Map(candidates.map(combat => [combat.id, combat])).values());
+    return unique.find(combat => combat.active)
+        ?? unique.find(combat => Boolean(combat.started) || Number(combat.round) > 0)
+        ?? unique[0]
+        ?? null;
+}
+
 function guardVehicleCombatMovement(tokenDocument, changes, options = {}) {
-    if (!shouldManageVehicleCombatMovement(tokenDocument, changes, options)) return;
+    const gate = getVehicleCombatMovementGate(tokenDocument, changes, options);
+    if (!gate.allowed) return;
     const state = getCombatMovementStateForTokenOrActor(tokenDocument);
     if (!state) return;
 
@@ -540,16 +567,25 @@ async function persistVehicleCombatMovementSpend(state, distance, tokenDocument 
         vehicleName: state.vehicleName
     };
     await state.combat.setFlag(MODULE_ID, VEHICLE_COMBAT_MOVEMENT_FLAG, ledger);
-    ui.combat?.render(false);
+    refreshCombatMovementDisplays();
     debugVehicleCombat(`Spent ${distance} ${getSceneDistanceUnit(tokenDocument?.parent)} of ${state.vehicleName} movement`, ledger.vehicles[state.vehicleKey]);
 }
 
 function shouldManageVehicleCombatMovement(tokenDocument, changes, options = {}) {
-    if (options?.fullSpeedAheadRotationOnly || options?.fullSpeedAheadCrew || options?.fullSpeedAheadVehicleOperation) return false;
-    if (!isVehicleCombatSpeedManaged() || !isVehicleCombatSharedMovementEnabled()) return false;
-    if (!tokenDocument?.actor || !isVehicleActor(tokenDocument.actor)) return false;
-    if (!Object.prototype.hasOwnProperty.call(changes ?? {}, "x") && !Object.prototype.hasOwnProperty.call(changes ?? {}, "y")) return false;
-    return Boolean(getStartedCombatForScene(tokenDocument.parent));
+    return getVehicleCombatMovementGate(tokenDocument, changes, options).allowed;
+}
+
+function getVehicleCombatMovementGate(tokenDocument, changes, options = {}) {
+    if (options?.fullSpeedAheadRotationOnly || options?.fullSpeedAheadCrew || options?.fullSpeedAheadVehicleOperation) return { allowed: false, reason: "ignored-operation" };
+    if (!isVehicleCombatSpeedManaged() || !isVehicleCombatSharedMovementEnabled()) return { allowed: false, reason: "disabled" };
+    if (!tokenDocument?.actor || !isVehicleActor(tokenDocument.actor)) return { allowed: false, reason: "not-vehicle" };
+    if (!Object.prototype.hasOwnProperty.call(changes ?? {}, "x") && !Object.prototype.hasOwnProperty.call(changes ?? {}, "y")) return { allowed: false, reason: "not-movement" };
+    const combat = getCombatForScene(tokenDocument.parent);
+    if (!combat) return { allowed: false, reason: "no-combat" };
+    if (!getVehicleCombatMovementIdentity(tokenDocument.actor, tokenDocument, combat)) return { allowed: false, reason: "not-in-combat" };
+    const started = Boolean(combat.started) || Number(combat.round) > 0;
+    if (!started) return { allowed: false, reason: "not-started" };
+    return { allowed: true, reason: "started", combat };
 }
 
 function getRemainingCombatMovement(tokenOrActor) {
@@ -670,10 +706,10 @@ function warnVehicleCombatMovementExceeded(state) {
     ui.notifications.warn(`${state.vehicleName} has ${Math.round(state.remaining * 100) / 100} ${state.unit} of shared combat movement remaining this round.`);
 }
 
-function registerDragRulerCombatSpeedProvider() {
+function registerDragRulerCombatSpeedProvider(ReadySpeedProvider = null) {
     const dragRuler = globalThis.dragRuler;
     if (!dragRuler || dragRuler.__fullSpeedAheadCombatSpeedProvider) return;
-    const BaseProvider = dragRuler.SpeedProvider;
+    const BaseProvider = ReadySpeedProvider ?? dragRuler.SpeedProvider;
     const register = typeof dragRuler.registerModule === "function"
         ? dragRuler.registerModule
         : typeof dragRuler.registerSystem === "function"
@@ -682,12 +718,19 @@ function registerDragRulerCombatSpeedProvider() {
     if (!BaseProvider || !register) return;
 
     class FullSpeedAheadCombatSpeedProvider extends BaseProvider {
+        get colors() {
+            return [
+                { id: "fsa-combat-remaining", default: 0x2ec27e, name: "FSA Combat Movement Remaining" },
+                { id: "fsa-combat-spent", default: 0xd93636, name: "FSA Combat Movement Spent" }
+            ];
+        }
+
         getRanges(token) {
             const state = getCombatMovementStateForTokenOrActor(token);
-            if (!state) return typeof super.getRanges === "function" ? super.getRanges(token) : [];
+            if (!state) return typeof super.getRanges === "function" ? super.getRanges(token) : null;
             return [
-                { range: state.remaining, color: "#2ec27e" },
-                { range: state.speed, color: "#f5c542" }
+                { range: state.remaining, color: "fsa-combat-remaining" },
+                { range: Infinity, color: "fsa-combat-spent" }
             ];
         }
     }
@@ -699,6 +742,12 @@ function registerDragRulerCombatSpeedProvider() {
     } catch (error) {
         debugVehicleCombat("Could not register Drag Ruler combat speed provider.", error);
     }
+}
+
+function refreshCombatMovementDisplays() {
+    ui.combat?.render(true);
+    canvas?.tokens?.controlled?.forEach?.(token => token.renderFlags?.set?.({ refresh: true }));
+    canvas?.app?.renderer?.render?.(canvas.stage);
 }
 
 function getActorProtectionSettings(actor, tokenDocument = null) {
@@ -1172,7 +1221,8 @@ async function syncActiveVehicleCombat() {
     if (!game.user.isGM || !isVehicleCombatEnabled()) return;
     const combat = game.combat;
     if (!combat) return;
-    for (const combatant of combat.combatants) await replaceVehicleCombatantWithCrew(combatant);
+    for (const combatant of Array.from(combat.combatants ?? [])) await replaceVehicleCombatantWithCrew(combatant);
+    await cleanupDuplicateVehicleCrewCombatants(combat);
 }
 
 async function replaceVehicleCombatantWithCrew(combatant) {
@@ -1192,8 +1242,17 @@ async function replaceVehicleCombatantWithCrew(combatant) {
         const warnings = [];
         const skipped = [];
         const createPlaceholders = getCrewMatchMode() === VEHICLE_CREW_MATCH_MODES.PLACEHOLDERS;
+        const rosterActorKeys = new Set();
         for (const row of rows) {
             const result = matchCrewActor(row, game.actors);
+            if (result.actor) {
+                const actorKey = result.actor.uuid || result.actor.id;
+                if (rosterActorKeys.has(actorKey)) {
+                    skipped.push(`${row.name} (already represented in crew initiative)`);
+                    continue;
+                }
+                rosterActorKeys.add(actorKey);
+            }
             if (result.actor || createPlaceholders) roster.push({ row, actor: result.actor });
             if (!result.actor) {
                 const note = `${row.name} (${result.ambiguous ? "multiple Actors have this name" : "Actor not found"})`;
@@ -1246,6 +1305,7 @@ async function replaceVehicleCombatantWithCrew(combatant) {
             ? await combatant.combat.createEmbeddedDocuments("Combatant", createData, { fullSpeedAheadCrew: true })
             : [];
         await combatant.delete({ fullSpeedAheadReplacedVehicle: true });
+        await cleanupDuplicateVehicleCrewCombatants(combatant.combat);
         if (warnings.length) {
             ui.notifications.info(`Full Speed Ahead created silhouette combatants for unmatched crew of ${vehicle.name}: ${warnings.join(", ")}.`);
         }
@@ -1260,11 +1320,48 @@ async function replaceVehicleCombatantWithCrew(combatant) {
 
 function findExistingActorCombatant(combat, actor, replacingCombatantId, usedIds = new Set()) {
     if (!combat || !actor) return null;
-    return Array.from(combat.combatants ?? []).find(candidate => {
-        if (!candidate || candidate.id === replacingCombatantId || usedIds.has(candidate.id)) return false;
+    const candidates = getUnflaggedActorCombatants(combat, actor, replacingCombatantId)
+        .filter(candidate => !usedIds.has(candidate.id));
+    if (!candidates.length) return null;
+    if (hasMultipleSceneTokensForActorInCombat(combat, actor, replacingCombatantId)) return null;
+    return candidates[0] ?? null;
+}
+
+function getUnflaggedActorCombatants(combat, actor, excludedCombatantId = null) {
+    if (!combat || !actor) return [];
+    return Array.from(combat.combatants ?? []).filter(candidate => {
+        if (!candidate || candidate.id === excludedCombatantId) return false;
         if (candidate.getFlag(MODULE_ID, CREW_COMBATANT_FLAG)) return false;
         return candidate.actor?.id === actor.id || candidate.actor?.uuid === actor.uuid;
-    }) ?? null;
+    });
+}
+
+function hasMultipleSceneTokensForActorInCombat(combat, actor, excludedCombatantId = null) {
+    const tokenIds = new Set(getUnflaggedActorCombatants(combat, actor, excludedCombatantId)
+        .map(combatant => combatant.tokenId)
+        .filter(Boolean));
+    return tokenIds.size > 1;
+}
+
+async function cleanupDuplicateVehicleCrewCombatants(combat) {
+    if (!combat) return;
+    for (const crewCombatant of Array.from(combat.combatants ?? [])) {
+        const data = crewCombatant.getFlag(MODULE_ID, CREW_COMBATANT_FLAG);
+        if (!data || !crewCombatant.actor) continue;
+
+        const existing = findExistingActorCombatant(combat, crewCombatant.actor, crewCombatant.id);
+        if (!existing) continue;
+
+        await existing.update({
+            [`flags.${MODULE_ID}.${CREW_COMBATANT_FLAG}`]: data
+        }, { fullSpeedAheadCrew: true });
+        await crewCombatant.delete({ fullSpeedAheadRemovedDuplicateCrew: true });
+    }
+}
+
+function queueVehicleCrewDuplicateCleanup(combat) {
+    if (!game.user.isGM || !combat || !isVehicleCombatEnabled()) return;
+    setTimeout(() => cleanupDuplicateVehicleCrewCombatants(combat).catch(error => debugVehicleCombat("Could not clean duplicate crew combatants.", error)), 0);
 }
 
 async function syncVehicleAbilityScoresFromCrew(vehicle, roster) {
@@ -1364,6 +1461,7 @@ function renderVehicleCrewTracker(app, html) {
 
     const mode = game.settings.get(MODULE_ID, "vehicleCombatDisplayMode");
     const badgeIcon = game.settings.get(MODULE_ID, "vehicleCombatShipIcon") || DEFAULT_SHIP_BADGE;
+    const hideUnmatchedCrewPhotos = Boolean(safeGetModuleSetting("vehicleCombatHideUnmatchedCrewPhotos", true));
 
     for (const combatant of combat.combatants) {
         const data = combatant.getFlag(MODULE_ID, CREW_COMBATANT_FLAG);
@@ -1382,7 +1480,7 @@ function renderVehicleCrewTracker(app, html) {
         const crewName = combatant.name || "Crew";
         row.find(".full-speed-ahead-combat-row").remove();
         const controls = detachCombatantControls(row);
-        row.empty().append(buildVehicleCombatantRow({ combatant, data, mode, badgeIcon, crewName, controls }));
+        row.empty().append(buildVehicleCombatantRow({ combatant, data, mode, badgeIcon, crewName, controls, hideUnmatchedCrewPhotos }));
 
         row.off("dblclick.fullSpeedAheadVehicleCombat").on("dblclick.fullSpeedAheadVehicleCombat", () => {
             const token = canvas.tokens?.get(data.vehicleTokenId);
@@ -1394,22 +1492,45 @@ function renderVehicleCrewTracker(app, html) {
         row.find(".full-speed-ahead-combat-ship").off("dblclick.fullSpeedAheadVehicleCombat").on("dblclick.fullSpeedAheadVehicleCombat", async event => {
             event.preventDefault();
             event.stopPropagation();
-            const vehicle = await resolveCrewVehicleActor(data);
-            if (!vehicle) return ui.notifications.warn("Full Speed Ahead could not find that vehicle actor.");
-            if (!canOpenVehicleSheet(vehicle)) return ui.notifications.warn(`You do not have permission to open ${vehicle.name}.`);
-            vehicle.sheet?.render(true);
+            await openCrewVehicleSheet(data);
+        });
+
+        row.off("contextmenu.fullSpeedAheadVehicleCombat").on("contextmenu.fullSpeedAheadVehicleCombat", event => {
+            event.preventDefault();
+            event.stopPropagation();
+            removeVehicleCrewCombatant(combatant);
+        });
+
+        row.find(".full-speed-ahead-combat-initiative").off("click.fullSpeedAheadVehicleCombat").on("click.fullSpeedAheadVehicleCombat", event => {
+            event.preventDefault();
+            event.stopPropagation();
+            editVehicleCrewCombatantInitiative(combatant, $(event.currentTarget));
         });
 
     }
 }
 
+async function openCrewVehicleSheet(data) {
+    const token = resolveCrewVehicleToken(data);
+    const vehicle = token?.actor ?? await resolveCrewVehicleActor(data);
+    if (!vehicle) return ui.notifications.warn("Full Speed Ahead could not find that vehicle actor.");
+    if (!canOpenVehicleSheet(vehicle)) return ui.notifications.warn(`You do not have permission to open ${vehicle.name}.`);
+    vehicle.sheet?.render(true);
+}
+
+function resolveCrewVehicleToken(data) {
+    if (!data?.vehicleTokenId) return null;
+    return canvas.tokens?.get(data.vehicleTokenId) ?? null;
+}
+
 async function resolveCrewVehicleActor(data) {
     if (!data) return null;
+    const token = resolveCrewVehicleToken(data);
+    if (token?.actor) return token.actor;
     const actor = data.vehicleActorId ? game.actors?.get(data.vehicleActorId) : null;
     if (actor) return actor;
     if (data.vehicleActorUuid && typeof fromUuid === "function") return fromUuid(data.vehicleActorUuid);
-    const token = data.vehicleTokenId ? canvas.tokens?.get(data.vehicleTokenId) : null;
-    return token?.actor ?? null;
+    return null;
 }
 
 function canOpenVehicleSheet(actor) {
@@ -1418,10 +1539,11 @@ function canOpenVehicleSheet(actor) {
     return actor.testUserPermission?.(game.user, "OWNER") ?? false;
 }
 
-function buildVehicleCombatantRow({ combatant, data, mode, badgeIcon, crewName, controls }) {
+function buildVehicleCombatantRow({ combatant, data, mode, badgeIcon, crewName, controls, hideUnmatchedCrewPhotos = true }) {
     const full = mode === VEHICLE_COMBAT_DISPLAY_MODES.FULL;
     const row = $(`<div class="full-speed-ahead-combat-row"></div>`);
     const crewImg = combatant.img || DEFAULT_SILHOUETTE;
+    const hideCrewPhoto = Boolean(data.artificial && hideUnmatchedCrewPhotos);
     const movement = getCombatMovementStateForCrewData(data);
     const movementBar = buildVehicleMovementBar(movement);
 
@@ -1429,10 +1551,11 @@ function buildVehicleCombatantRow({ combatant, data, mode, badgeIcon, crewName, 
         <img class="full-speed-ahead-combat-ship" src="${escapeHtml(data.vehicleImg)}" alt="${escapeHtml(data.vehicleName)}">
         ${movementBar}
     </div>`);
-    const crewPortrait = $(`<div class="full-speed-ahead-combat-crew-wrap">
-        <img class="full-speed-ahead-combat-crew" src="${escapeHtml(crewImg)}" alt="${escapeHtml(crewName)}">
-    </div>`);
-    if (!full) crewPortrait.append(`<img class="full-speed-ahead-ship-badge" src="${escapeHtml(badgeIcon)}" alt="">`);
+    const crewPortrait = $(`<div class="full-speed-ahead-combat-crew-wrap ${hideCrewPhoto ? "full-speed-ahead-combat-crew-empty" : ""}"></div>`);
+    if (!hideCrewPhoto) {
+        crewPortrait.append(`<img class="full-speed-ahead-combat-crew" src="${escapeHtml(crewImg)}" alt="${escapeHtml(crewName)}">`);
+        if (!full) crewPortrait.append(`<img class="full-speed-ahead-ship-badge" src="${escapeHtml(badgeIcon)}" alt="">`);
+    }
 
     row.append(vessel);
     row.append(crewPortrait);
@@ -1440,8 +1563,63 @@ function buildVehicleCombatantRow({ combatant, data, mode, badgeIcon, crewName, 
         <h4>${escapeHtml(crewName)}</h4>
         <div class="full-speed-ahead-combat-role">${escapeHtml(data.vehicleName)} / ${escapeHtml(data.role || "Crew")}</div>
     </div>`);
+    row.append(buildVehicleCombatantInitiative(combatant));
     row.append($(`<div class="full-speed-ahead-combat-controls"></div>`).append(controls));
     return row;
+}
+
+function buildVehicleCombatantInitiative(combatant) {
+    const raw = Number(combatant?.initiative);
+    const label = Number.isFinite(raw) ? raw.toFixed(2).replace(/\.?0+$/u, "") : "-";
+    const title = game.user.isGM ? "Click to update initiative. Right-click row to remove from combat." : "Initiative";
+    return $(`<button type="button" class="full-speed-ahead-combat-initiative" title="${escapeHtml(title)}">${escapeHtml(label)}</button>`);
+}
+
+async function editVehicleCrewCombatantInitiative(combatant, button) {
+    if (!combatant || !game.user.isGM) return;
+    if (button.find("input").length) return;
+
+    const current = Number.isFinite(Number(combatant.initiative)) ? Number(combatant.initiative) : 0;
+    const input = $(`<input type="number" step="0.01" class="full-speed-ahead-combat-initiative-input">`).val(current);
+    button.empty().append(input);
+    input.trigger("focus").trigger("select");
+    let committed = false;
+
+    const commit = async () => {
+        if (committed) return;
+        committed = true;
+        const value = Number(input.val());
+        if (Number.isFinite(value)) {
+            try {
+                await combatant.update({ initiative: value });
+            } catch (error) {
+                ui.notifications.error(error.message || "Full Speed Ahead could not update initiative.");
+            }
+        }
+        ui.combat?.render(true);
+    };
+
+    input.on("keydown", async event => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            await commit();
+        } else if (event.key === "Escape") {
+            event.preventDefault();
+            committed = true;
+            ui.combat?.render(true);
+        }
+    });
+    input.on("blur", () => commit());
+}
+
+async function removeVehicleCrewCombatant(combatant) {
+    if (!combatant || !game.user.isGM) return;
+    try {
+        await combatant.delete();
+        ui.combat?.render(true);
+    } catch (error) {
+        ui.notifications.error(error.message || "Full Speed Ahead could not remove that combatant.");
+    }
 }
 
 function getCombatMovementStateForCrewData(data) {
@@ -1576,9 +1754,14 @@ function cleanCrewName(value) {
 function matchCrewActor(entry, actors) {
     if (!entry) return { actor: null, ambiguous: false, candidates: [] };
 
-    const candidates = Array.from(actors ?? []).filter(actor => normalizeCrewName(actor.name) === normalizeCrewName(entry.name));
-    const exact = candidates.filter(actor => actor.name === entry.name);
-    const ranked = exact.length ? exact : candidates;
+    const entryName = normalizeCrewName(entry.name);
+    const candidates = Array.from(actors ?? []).filter(actor => {
+        const actorName = normalizeCrewName(actor.name);
+        return actorName === entryName || actorName.startsWith(`${entryName} `) || entryName.startsWith(`${actorName} `);
+    });
+    const exact = candidates.filter(actor => normalizeCrewName(actor.name) === entryName);
+    const startsWithBoundary = candidates.filter(actor => normalizeCrewName(actor.name).startsWith(`${entryName} `));
+    const ranked = exact.length ? exact : startsWithBoundary.length ? startsWithBoundary : candidates;
     return {
         actor: ranked.length === 1 ? ranked[0] : null,
         ambiguous: ranked.length > 1,

@@ -981,8 +981,46 @@ class VehicleTokenEffectService {
         game.fullSpeedAheadVehicleCombat?.syncVehicleShields?.();
     }
 
-    static async clearDamage(_actor) {
-        // Built-in FSA protection visuals are synchronized by vehicle-combat.js.
+    static async clearDamage(actor) {
+        if (!game.user?.isGM || !actor) return;
+        const tokens = this.tokensForActor(actor);
+        for (const token of tokens) {
+            await this.clearTokenLight(token);
+            await this.clearTokenMagicDamage(token);
+        }
+    }
+
+    static tokensForActor(actor) {
+        return canvas?.tokens?.placeables?.filter(token => token.actor?.id === actor.id || token.actor?.uuid === actor.uuid) ?? [];
+    }
+
+    static async clearTokenLight(token) {
+        if (!token?.document) return;
+        const alpha = Number(foundry.utils.getProperty(token.document, "light.alpha") ?? foundry.utils.getProperty(token.document, "lightAlpha") ?? 0);
+        if (alpha <= 0) return;
+        try {
+            await token.document.update({ "light.alpha": 0 }, { fullSpeedAheadVehicleOperation: true });
+        } catch (_error) {
+            // Cosmetic cleanup should never fail the repair action.
+        }
+    }
+
+    static async clearTokenMagicDamage(token) {
+        if (!token || !globalThis.TokenMagic || !game.modules?.get("tokenmagic")?.active) return;
+        const filters = foundry.utils.getProperty(token.document, "flags.tokenmagic.filters") ?? [];
+        const damageIds = Array.from(filters)
+            .map(filter => String(filter?.filterId || ""))
+            .filter(id => /^fsaDamage/u.test(id));
+        if (!damageIds.length) return;
+
+        for (const filterId of damageIds) {
+            try {
+                if (TokenMagic.deleteFilters) await TokenMagic.deleteFilters(token, filterId);
+                else if (TokenMagic.deleteFiltersOnToken) await TokenMagic.deleteFiltersOnToken(token, filterId);
+            } catch (_error) {
+                // Cosmetic cleanup should never fail the repair action.
+            }
+        }
     }
 
     static async damage(actor) {
