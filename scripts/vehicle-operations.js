@@ -1127,7 +1127,7 @@ class VehicleDamageService {
     static async applyCarryover(state, amount, source = "incoming damage") {
         let remaining = Math.max(0, Number(amount || 0));
         if (remaining <= 0) return;
-        if (VehicleHeatSinkService.canOffer(state.actor, remaining, source, state.damageType)) {
+        if (!state.suppressHeatSinkPrompts && VehicleHeatSinkService.canOffer(state.actor, remaining, source, state.damageType)) {
             state.prompts.push(await VehicleHeatSinkService.createChoice({ actor: state.actor, amount: remaining, reason: source, attack: state.attack, damageType: state.damageType, sceneId: state.sceneId, tokenId: state.tokenId }));
             return;
         }
@@ -1160,7 +1160,7 @@ class VehicleDamageService {
     }
 
     static async handleCargoFailure(state, reason, amount) {
-        if (VehicleHeatSinkService.canOffer(state.actor, amount, reason, state.damageType)) {
+        if (!state.suppressHeatSinkPrompts && VehicleHeatSinkService.canOffer(state.actor, amount, reason, state.damageType)) {
             state.prompts.push(await VehicleHeatSinkService.createChoice({ actor: state.actor, amount, reason, attack: state.attack, damageType: state.damageType, mode: "cargo", extra: `<br>Status: Cargo hold failure imminent.`, sceneId: state.sceneId, tokenId: state.tokenId }));
         } else {
             const removed = await VehicleCargoJettisonService.jettison(state.actor, state);
@@ -1169,7 +1169,7 @@ class VehicleDamageService {
     }
 
     static async applyQueuedCarryover(actor, payload) {
-        const state = { actor, attack: Number(payload.attack || 0), damageType: payload.damageType || "thermal", sceneId: payload.sceneId || "", tokenId: payload.tokenId || "", details: [], destroyed: [], prompts: [], tokenDamageEffect: false };
+        const state = { actor, attack: Number(payload.attack || 0), damageType: payload.damageType || "thermal", sceneId: payload.sceneId || "", tokenId: payload.tokenId || "", details: [], destroyed: [], prompts: [], tokenDamageEffect: false, suppressHeatSinkPrompts: true };
         await this.applyCarryover(state, payload.amount, payload.reason || payload.source);
         const totalHp = await VehicleModuleService.syncVehicleHpFromModules(actor);
         if (state.tokenDamageEffect) await VehicleTokenEffectService.damage(actor);
