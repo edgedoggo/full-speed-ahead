@@ -30,7 +30,8 @@
 
 .fsa-floating-menu-actions {
     display: grid;
-    grid-template-columns: repeat(6, 32px);
+    grid-auto-flow: column;
+    grid-auto-columns: 32px;
     gap: 5px;
 }
 
