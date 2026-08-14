@@ -796,7 +796,11 @@ function registerDragRulerCombatSpeedProvider(ReadySpeedProvider = null) {
 
         getRanges(token) {
             const state = getCombatMovementStateForTokenOrActor(token);
-            if (!state) return typeof super.getRanges === "function" ? super.getRanges(token) : null;
+            // SpeedProvider#getRanges is abstract in Drag Ruler. Provide a valid
+            // unrestricted range when FSA is not managing this token's movement.
+            if (!state) {
+                return [{ range: Infinity, color: "fsa-combat-remaining" }];
+            }
             return [
                 { range: state.remaining, color: "fsa-combat-remaining" },
                 { range: Infinity, color: "fsa-combat-spent" }

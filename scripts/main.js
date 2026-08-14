@@ -1127,15 +1127,19 @@ function addTargetingSystemButton() {
 }
 
 function isStandaloneQuickTargetActive() {
-    const modules = Array.from(game.modules?.entries?.() ?? game.modules ?? []);
-    return modules.some(entry => {
-        const [moduleId, module] = Array.isArray(entry)
-            ? entry
-            : [entry?.id ?? entry?.name ?? entry?.data?.name, entry];
-        const id = String(moduleId ?? "");
+    const modules = Array.from(game.modules?.entries?.() ?? []);
+
+    return modules.some(([moduleId, module]) => {
+        const id = String(moduleId ?? module?.id ?? "");
+
         if (id === MODULE_ID || !module?.active) return false;
-        const identity = `${id} ${module.title ?? ""} ${module.data?.title ?? ""} ${module.data?.name ?? ""}`;
-        return STANDALONE_QUICKTARGET_MODULE_IDS.includes(id) || /quick\s*-?\s*target/i.test(identity);
+
+        const identity = `${id} ${module?.title ?? ""}`;
+
+        return (
+            STANDALONE_QUICKTARGET_MODULE_IDS.includes(id) ||
+            /quick\s*-?\s*target/i.test(identity)
+        );
     });
 }
 
