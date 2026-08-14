@@ -2155,7 +2155,7 @@ class FullSpeedAheadFloatingMenu {
         menu.style.left = `${Number(pos.left || 14)}px`;
         menu.style.top = `${Number(pos.top || 125)}px`;
         menu.innerHTML = `
-            <strong class="fsa-floating-menu-title">FSA</strong>
+            <strong class="fsa-floating-menu-title">Full Speed Ahead</strong>
             <div class="fsa-floating-menu-actions">
                 <button type="button" data-tab="attack" title="Attack Damage" aria-label="Attack Damage"><i class="fas fa-bomb"></i></button>
                 <button type="button" data-tab="scans" title="Scan" aria-label="Scan"><i class="fas fa-satellite-dish"></i></button>
