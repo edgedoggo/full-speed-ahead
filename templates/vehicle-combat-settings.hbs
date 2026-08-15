@@ -41,13 +41,19 @@
     <div class="form-group">
         <label>FSA Manages Combat Speed</label>
         <input type="checkbox" name="vehicleCombatSpeedManaged" {{checked vehicleCombatSpeedManaged}}>
-        <p class="notes">Track and enforce vehicle movement during active combat rounds.</p>
+        <p class="notes">Track vehicle movement during active combat rounds.</p>
     </div>
 
     <div class="form-group">
         <label>Shared Movement</label>
         <input type="checkbox" name="vehicleCombatSharedMovement" {{checked vehicleCombatSharedMovement}}>
-        <p class="notes">At the start of each round, the vehicle gains movement equal to its Speed. On any crew member's turn, that character may spend part of the vehicle's remaining movement. The total movement spent by all crew members cannot exceed the vehicle's Speed before the next round.</p>
+        <p class="notes">Each vessel stores movement up to its Speed, shared by its entire crew. At the start of every creature's turn in combat, each vessel recovers movement equal to one eighth of its Speed, up to its maximum. Anyone controlling the vessel may spend its available movement.</p>
+    </div>
+
+    <div class="form-group">
+        <label>Restrict vehicle movement for players in combat</label>
+        <input type="checkbox" name="vehicleCombatRestrictPlayerMovement" {{checked vehicleCombatRestrictPlayerMovement}}>
+        <p class="notes">When checked, players cannot move a vehicle out of turn or beyond its remaining shared movement. When unchecked, the move is allowed and FSA warns that the ship has exceeded its movement.</p>
     </div>
 
     <hr>

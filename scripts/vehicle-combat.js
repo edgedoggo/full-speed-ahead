@@ -133,7 +133,7 @@ const CREW_ABILITY_KEYS = {
 };
 const processingCombatants = new Set();
 const activeProtectionEffects = new Map();
-const pendingVehicleCombatMovementOrigins = new Map();
+const pendingVehicleCombatMovements = new Map();
 const pendingVehicleCombatMovementSpends = new Map();
 let protectionTicker = null;
 let lastCombatMovementWarningAt = 0;
@@ -158,6 +158,7 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
             vehicleCombatHideUnmatchedCrewPhotos: safeGetModuleSetting("vehicleCombatHideUnmatchedCrewPhotos", true),
             vehicleCombatSpeedManaged: safeGetModuleSetting("vehicleCombatSpeedManaged", true),
             vehicleCombatSharedMovement: game.settings.get(MODULE_ID, "vehicleCombatSharedMovement"),
+            vehicleCombatRestrictPlayerMovement: safeGetModuleSetting("vehicleCombatRestrictPlayerMovement", false),
             vehicleCombatDebug: game.settings.get(MODULE_ID, "vehicleCombatDebug"),
             vehicleOpsEnabled: safeGetModuleSetting("vehicleOpsEnabled", true),
             vehicleOpsShowFloatingMenuGM: safeGetModuleSetting("vehicleOpsShowFloatingMenuGM", true),
@@ -211,6 +212,7 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
         await game.settings.set(MODULE_ID, "vehicleCombatHideUnmatchedCrewPhotos", Boolean(formData.vehicleCombatHideUnmatchedCrewPhotos));
         await game.settings.set(MODULE_ID, "vehicleCombatSpeedManaged", Boolean(formData.vehicleCombatSpeedManaged));
         await game.settings.set(MODULE_ID, "vehicleCombatSharedMovement", Boolean(formData.vehicleCombatSharedMovement));
+        await game.settings.set(MODULE_ID, "vehicleCombatRestrictPlayerMovement", Boolean(formData.vehicleCombatRestrictPlayerMovement));
         await game.settings.set(MODULE_ID, "vehicleCombatDebug", Boolean(formData.vehicleCombatDebug));
         await safeSetModuleSetting("vehicleOpsEnabled", Boolean(formData.vehicleOpsEnabled));
         await safeSetModuleSetting("vehicleOpsShowFloatingMenuGM", Boolean(formData.vehicleOpsShowFloatingMenuGM));
@@ -295,7 +297,7 @@ Hooks.once("init", () => {
 
     registerVehicleCombatSetting("vehicleCombatSpeedManaged", {
         name: "FSA Manages Combat Speed",
-        hint: "Track and enforce vehicle combat movement during started combats.",
+        hint: "Track vehicle combat movement during started combats.",
         type: Boolean,
         default: true,
         config: false,
@@ -304,11 +306,19 @@ Hooks.once("init", () => {
 
     registerVehicleCombatSetting("vehicleCombatSharedMovement", {
         name: "Shared Movement",
-        hint: "At the start of each round, each vehicle gains movement equal to its Speed. Any crew member may spend from that vehicle's shared remaining movement.",
+        hint: "Each vehicle stores movement up to its Speed. Its crew shares that pool, and it recovers one eighth of its Speed at the start of every creature's turn.",
         type: Boolean,
         default: true,
         config: false,
         onChange: () => ui.combat?.render(true)
+    });
+
+    registerVehicleCombatSetting("vehicleCombatRestrictPlayerMovement", {
+        name: "Restrict vehicle movement for players in combat",
+        hint: "When enabled, players cannot move a vehicle out of turn or beyond its remaining shared movement. When disabled, movement is allowed and exceeding the allowance displays a warning.",
+        type: Boolean,
+        default: false,
+        config: false
     });
 
     registerVehicleCombatSetting("vehicleShieldAutomation", {
@@ -347,7 +357,9 @@ Hooks.once("ready", () => {
     game.fullSpeedAheadVehicleCombat = {
         syncVehicleShields,
         getRemainingMovement: getRemainingCombatMovement,
-        getMovementState: getCombatMovementStateForTokenOrActor
+        getMovementState: getCombatMovementStateForTokenOrActor,
+        getSpeed: getVehicleCombatSpeed,
+        getRecovery: getVehicleCombatRecovery
     };
     game.socket?.on?.(`module.${MODULE_ID}`, handleVehicleCombatSocket);
     registerDragRulerCombatSpeedProvider();
@@ -368,9 +380,13 @@ Hooks.on("deleteCombat", combat => restoreVehicleCombatOwnership(combat));
 Hooks.on("updateCombat", (combat, changes) => {
     const changed = changes ?? {};
     const movementChanged = Boolean(foundry.utils.getProperty(changed, `flags.${MODULE_ID}.${VEHICLE_COMBAT_MOVEMENT_FLAG}`));
-    if (Object.prototype.hasOwnProperty.call(changed, "round") || movementChanged) {
+    const turnChanged = Object.prototype.hasOwnProperty.call(changed, "round") || Object.prototype.hasOwnProperty.call(changed, "turn");
+    if (turnChanged || movementChanged) {
         clearPendingVehicleCombatMovementForCombat(combat);
         ui.combat?.render(true);
+    }
+    if (turnChanged && game.user?.isGM) {
+        recoverVehicleCombatMovementForTurn(combat).catch(error => debugVehicleCombat("Could not recover vehicle movement for the new turn.", error));
     }
 });
 Hooks.on("preUpdateToken", (tokenDocument, changes, options) => guardVehicleCombatMovement(tokenDocument, changes, options));
@@ -452,6 +468,10 @@ function isVehicleCombatSharedMovementEnabled() {
     return Boolean(safeGetModuleSetting("vehicleCombatSharedMovement", true));
 }
 
+function isVehicleCombatPlayerMovementRestricted() {
+    return Boolean(safeGetModuleSetting("vehicleCombatRestrictPlayerMovement", false));
+}
+
 function getStartedCombatForScene(scene, combatOverride = null) {
     const combat = getCombatForScene(scene, combatOverride);
     if (!combat) return null;
@@ -484,10 +504,22 @@ function guardVehicleCombatMovement(tokenDocument, changes, options = {}) {
 
     const distance = measureTokenDocumentMovement(tokenDocument, changes);
     if (distance <= 0) return;
-    if (distance <= state.remaining + 0.01) {
+    const restrictPlayerMovement = isVehicleCombatPlayerMovementRestricted();
+    if (distance <= state.remaining + 0.01 || game.user?.isGM || !restrictPlayerMovement) {
+        if (!game.user?.isGM && !restrictPlayerMovement && distance > state.remaining + 0.01) {
+            warnVehicleCombatMovementExceededWithoutBlocking(state);
+        }
         const origin = { x: tokenDocument.x, y: tokenDocument.y };
-        options.fullSpeedAheadCombatOrigin = origin;
-        pendingVehicleCombatMovementOrigins.set(getTokenMovementOriginKey(tokenDocument), origin);
+        const movement = {
+            origin,
+            destination: {
+                x: Number.isFinite(Number(changes.x)) ? Number(changes.x) : tokenDocument.x,
+                y: Number.isFinite(Number(changes.y)) ? Number(changes.y) : tokenDocument.y
+            },
+            distance
+        };
+        options.fullSpeedAheadCombatMovement = movement;
+        pendingVehicleCombatMovements.set(getTokenMovementOriginKey(tokenDocument), movement);
         return;
     }
 
@@ -503,11 +535,13 @@ async function recordVehicleCombatMovement(tokenDocument, changes, options = {},
     if (!state) return;
 
     const originKey = getTokenMovementOriginKey(tokenDocument);
-    const origin = options?.fullSpeedAheadCombatOrigin ?? pendingVehicleCombatMovementOrigins.get(originKey);
-    pendingVehicleCombatMovementOrigins.delete(originKey);
-    const measuredDistance = origin
-        ? measureTokenDocumentMovementBetween(tokenDocument, origin, { x: tokenDocument.x, y: tokenDocument.y })
-        : measureTokenDocumentMovement(tokenDocument, changes);
+    const pendingMovement = options?.fullSpeedAheadCombatMovement ?? pendingVehicleCombatMovements.get(originKey);
+    pendingVehicleCombatMovements.delete(originKey);
+    const measuredDistance = Number(pendingMovement?.distance) > 0
+        ? Number(pendingMovement.distance)
+        : pendingMovement?.origin
+            ? measureTokenDocumentMovementBetween(tokenDocument, pendingMovement.origin, { x: tokenDocument.x, y: tokenDocument.y })
+            : measureTokenDocumentMovement(tokenDocument, changes);
     if (measuredDistance <= 0) return;
 
     if (!game.user.isGM) {
@@ -547,11 +581,12 @@ async function handleVehicleCombatSocket(message) {
 }
 
 async function persistVehicleCombatMovementSpend(state, distance, tokenDocument = null) {
-    const nextSpent = Math.min(state.speed, state.spent + distance);
+    const nextAvailable = Math.max(0, state.remaining - distance);
     const ledger = getCombatMovementLedger(state.combat);
     ledger.vehicles[state.vehicleKey] = {
         speed: state.speed,
-        spent: nextSpent,
+        recovery: state.recovery,
+        available: nextAvailable,
         updatedRound: state.round,
         vehicleName: state.vehicleName
     };
@@ -576,7 +611,7 @@ function getVehicleCombatMovementGate(tokenDocument, changes, options = {}) {
     const started = Boolean(combat.started) || Number(combat.round) > 0;
     if (!started) return { allowed: false, reason: "not-started" };
     const activeIdentity = getActiveCombatVehicleMovementIdentity(combat);
-    if (activeIdentity && activeIdentity.key !== identity.key) {
+    if (!game.user?.isGM && isVehicleCombatPlayerMovementRestricted() && activeIdentity && activeIdentity.key !== identity.key) {
         return { allowed: false, reason: "wrong-turn-vehicle", block: true, combat, identity, activeIdentity };
     }
     return { allowed: true, reason: "started", combat };
@@ -605,15 +640,20 @@ function getCombatMovementStateForTokenOrActor(tokenOrActor, combatOverride = nu
     const ledger = getCombatMovementLedger(combat);
     const existing = ledger.vehicles[identity.key] ?? {};
     const pendingSpent = game.user?.isGM ? 0 : getPendingVehicleCombatMovementSpend(combat, identity.key);
-    const spent = clampVehicleCombatNumber((Number(existing.spent) || 0) + pendingSpent, 0, speed, 0);
+    const storedAvailable = Number.isFinite(Number(existing.available))
+        ? Number(existing.available)
+        : speed - (Number(existing.spent) || 0);
+    const available = clampVehicleCombatNumber(storedAvailable - pendingSpent, 0, speed, speed);
+    const recovery = getVehicleCombatRecovery(actor, speed);
     return {
         combat,
         round: Number(combat.round) || 0,
         vehicleKey: identity.key,
         vehicleName: identity.name,
         speed,
-        spent,
-        remaining: Math.max(0, speed - spent),
+        recovery,
+        spent: Math.max(0, speed - available),
+        remaining: available,
         unit: getSceneDistanceUnit(scene)
     };
 }
@@ -702,10 +742,12 @@ function crewDataMatchesVehicleTokenOrActor(data, actor, tokenDocument = null) {
 }
 
 function getCombatMovementLedger(combat) {
-    const round = Number(combat?.round) || 0;
     const stored = foundry.utils.deepClone(combat?.getFlag(MODULE_ID, VEHICLE_COMBAT_MOVEMENT_FLAG) ?? {});
-    if (Number(stored.round) === round && stored.vehicles && typeof stored.vehicles === "object") return stored;
-    return { round, vehicles: {} };
+    return {
+        ...stored,
+        round: Number(combat?.round) || 0,
+        vehicles: stored.vehicles && typeof stored.vehicles === "object" ? stored.vehicles : {}
+    };
 }
 
 function getVehicleCombatSpeed(actor) {
@@ -716,8 +758,63 @@ function getVehicleCombatSpeed(actor) {
     return Number.isFinite(speed) ? speed : 0;
 }
 
+function getVehicleCombatRecovery(actor, speed = getVehicleCombatSpeed(actor)) {
+    const configured = [
+        foundry.utils.getProperty(actor, "system.attributes.movement.recovery"),
+        foundry.utils.getProperty(actor, "system.details.recovery"),
+        actor?.getFlag?.(MODULE_ID, "vehicleMovementRecovery")
+    ];
+    for (const value of configured) {
+        const recovery = parseMovementNumber(value);
+        if (recovery > 0) return recovery;
+    }
+    return Math.max(0, speed / 8);
+}
+
+function getVehicleCombatTurnKey(combat) {
+    if (!combat || !(Boolean(combat.started) || Number(combat.round) > 0)) return "";
+    const combatant = combat.combatant ?? combat.turns?.[combat.turn] ?? null;
+    return `${Number(combat.round) || 0}:${Number(combat.turn) || 0}:${combatant?.id ?? ""}`;
+}
+
+async function recoverVehicleCombatMovementForTurn(combat) {
+    if (!combat || !isVehicleCombatSpeedManaged() || !isVehicleCombatSharedMovementEnabled()) return;
+    const turnKey = getVehicleCombatTurnKey(combat);
+    if (!turnKey) return;
+
+    const ledger = getCombatMovementLedger(combat);
+    if (ledger.lastRecoveryTurnKey === turnKey) return;
+    ledger.lastRecoveryTurnKey = turnKey;
+
+    let changed = false;
+    for (const entry of Object.values(ledger.vehicles)) {
+        const speed = Math.max(0, Number(entry?.speed) || 0);
+        if (speed <= 0) continue;
+        const current = Number.isFinite(Number(entry.available))
+            ? Number(entry.available)
+            : speed - (Number(entry.spent) || 0);
+        const recovery = Math.max(0, Number(entry.recovery) || speed / 8);
+        const available = Math.min(speed, Math.max(0, current) + recovery);
+        if (available !== current || Object.prototype.hasOwnProperty.call(entry, "spent")) changed = true;
+        entry.available = available;
+        entry.recovery = recovery;
+        delete entry.spent;
+    }
+
+    // Save the turn marker even while every pool is full so a repeated hook cannot recover twice.
+    await combat.setFlag(MODULE_ID, VEHICLE_COMBAT_MOVEMENT_FLAG, ledger);
+    if (changed) refreshCombatMovementDisplays();
+}
+
 function parseMovementNumber(value) {
     if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+    if (value && typeof value === "object") {
+        for (const candidate of [value.value, value.distance, value.total, value.max]) {
+            const parsed = parseMovementNumber(candidate);
+            if (parsed > 0) return parsed;
+        }
+        return 0;
+    }
     const parsed = Number.parseFloat(String(value ?? "").replace(/,/g, ""));
     return Number.isFinite(parsed) ? parsed : 0;
 }
@@ -765,7 +862,14 @@ function warnVehicleCombatMovementExceeded(state) {
     const now = Date.now();
     if (now - lastCombatMovementWarningAt < 1500) return;
     lastCombatMovementWarningAt = now;
-    ui.notifications.warn(`${state.vehicleName} has ${Math.round(state.remaining * 100) / 100} ${state.unit} of shared combat movement remaining this round.`);
+    ui.notifications.warn(`${state.vehicleName} has ${Math.round(state.remaining * 100) / 100} ${state.unit} of shared movement available.`);
+}
+
+function warnVehicleCombatMovementExceededWithoutBlocking(state) {
+    const now = Date.now();
+    if (now - lastCombatMovementWarningAt < 1500) return;
+    lastCombatMovementWarningAt = now;
+    ui.notifications.warn(`${state.vehicleName} has exceeded its movement.`);
 }
 
 function warnVehicleCombatWrongTurnVehicle(gate) {
@@ -1627,7 +1731,8 @@ function buildVehicleCombatantRow({ combatant, data, crewName, controls, hideUnm
     if (!hideCrewPhoto) row.append(crewPortrait);
     row.append(`<div class="full-speed-ahead-combat-name">
         <h4>${escapeHtml(crewName)}</h4>
-        <div class="full-speed-ahead-combat-role">${escapeHtml(data.vehicleName)} / ${escapeHtml(data.role || "Crew")}</div>
+        <div class="full-speed-ahead-combat-ship-name">${escapeHtml(data.vehicleName)}</div>
+        <div class="full-speed-ahead-combat-role">${escapeHtml(data.role || "Crew")}</div>
     </div>`);
     row.append(buildVehicleCombatantInitiative(combatant));
     row.append($(`<div class="full-speed-ahead-combat-controls"></div>`).append(controls));
@@ -1746,9 +1851,10 @@ function getCombatMovementStateForCrewData(data) {
 function buildVehicleMovementBar(state) {
     if (!state) return "";
     const percent = state.speed > 0 ? clampVehicleCombatNumber(state.remaining / state.speed, 0, 1, 0) : 0;
-    const color = percent <= 0.25 ? "#d93636" : percent <= 0.5 ? "#f0a020" : "#1fb84f";
+    const color = percent <= 0.25 ? "#8f2525" : percent <= 0.5 ? "#a97718" : "#244fbd";
     const label = `${Math.round(state.remaining * 10) / 10} / ${Math.round(state.speed * 10) / 10} ${state.unit}`;
-    return `<div class="full-speed-ahead-movement-bar" title="Shared movement remaining: ${escapeHtml(label)}">
+    const recovery = `${Math.round(state.recovery * 10) / 10} ${state.unit}/turn`;
+    return `<div class="full-speed-ahead-movement-bar" title="Available movement: ${escapeHtml(label)} | Recovery: ${escapeHtml(recovery)}">
         <div class="full-speed-ahead-movement-fill" style="--fsa-movement-percent: ${percent * 100}%; --fsa-movement-color: ${color};"></div>
     </div>`;
 }

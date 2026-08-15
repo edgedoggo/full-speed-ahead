@@ -1077,7 +1077,9 @@ class VehicleDamageService {
                 await VehicleModuleService.updateModuleHp(shield, before - dealt);
                 state.details.push(`${escapeHtml(shield.name)} hit for ${dealt} HP`);
                 remaining -= dealt;
-                if (VehicleModuleService.itemHp(shield) <= 0) state.details.push(`<b>${escapeHtml(shield.name)} is depleted! Shields are down!</b>`);
+                if (VehicleModuleService.itemHp(shield) <= 0) {
+                    state.details.push(`<b>${escapeHtml(shield.name)} is depleted!<br>Shields are down!</b>`);
+                }
                 if (remaining > 0) await this.applyCarryover(state, remaining, shield.name);
             } else if (selected) {
                 remaining = await this.applyToModule(state, selected, remaining);
@@ -1100,10 +1102,11 @@ class VehicleDamageService {
         if (state.tokenDamageEffect) await VehicleTokenEffectService.damage(actor);
         if (totalHp <= 0 && modules.length && damage > 0) state.destroyed.push(`<b style="color:red;">${escapeHtml(actor.name)} explodes into a ball of fiery force!</b>`);
         const label = context === "attack" ? "Combat" : (damageType === "thermal" ? "Thermal" : "Hull");
+        const orderedDetails = orderVehicleDamageChatLines([...state.details, ...state.destroyed]);
         await VehicleChatCardService.create({
             user: userId,
             speaker: { alias: "Full Speed Ahead Combat Damage" },
-            content: `<b style="color:red;">${escapeHtml(actor.name)} suffers ${damage} ${label} Damage!</b><br><b>Attack was AC: ${attack || "N/A"}</b><br>${state.details.concat(state.destroyed.length ? ["", ...state.destroyed] : []).join("<br>")}${state.prompts.length ? `<br><br>${state.prompts.join("<br>")}` : ""}`
+            content: `<b style="color:red;">${escapeHtml(actor.name)} suffers ${damage} ${label} Damage!</b><br><b>Attack was AC: ${attack || "N/A"}</b><br>${orderedDetails.join("<br>")}${state.prompts.length ? `<br><br>${state.prompts.join("<br>")}` : ""}`
         });
         TradeHubIntegrationAdapter.refreshTradeHub();
     }
@@ -1175,6 +1178,29 @@ class VehicleDamageService {
         if (state.tokenDamageEffect) await VehicleTokenEffectService.damage(actor);
         return { details: state.details.concat(state.destroyed.length ? ["", ...state.destroyed] : []), prompts: state.prompts, totalHp };
     }
+}
+
+function orderVehicleDamageChatLines(lines) {
+    const entries = lines
+        .filter(line => String(line ?? "").trim())
+        .map((line, index) => {
+            const text = String(line);
+            const damageMatch = text.match(/\bhit for\s+([\d,.]+)\s+HP\b/i);
+            return {
+                line: text,
+                index,
+                emphasized: /^\s*<b(?:\s|>)/i.test(text),
+                damage: damageMatch ? Number(String(damageMatch[1]).replace(/,/g, "")) || 0 : 0
+            };
+        })
+        .sort((left, right) => Number(right.emphasized) - Number(left.emphasized)
+            || right.damage - left.damage
+            || left.index - right.index);
+
+    const firstNormal = entries.findIndex(entry => !entry.emphasized);
+    const ordered = entries.map(entry => entry.line);
+    if (firstNormal > 0) ordered.splice(firstNormal, 0, "");
+    return ordered;
 }
 
 class VehicleRepairService {
