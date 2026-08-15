@@ -213,7 +213,7 @@ export class TargetingSystem {
     static async handleDoubleRightClickTarget(targetToken, event) {
         if (!isAnyQuickTargetEnabled()) return false;
         if (!game.settings.get(MODULE_ID, "replaceDoubleRightClickTargeting")) return false;
-        if (!canvas?.ready || !targetToken?.actor || targetToken.document.hidden) return false;
+        if (!canvas?.ready || !targetToken?.actor || !isTokenVisibleToCurrentUser(targetToken)) return false;
 
         stopFoundryEvent(event);
 
@@ -236,6 +236,11 @@ export class TargetingSystem {
     }
 
     static async targetTokenAndShowAttacks(sourceToken, targetToken, validAttacks, distance) {
+        if (!isTokenVisibleToCurrentUser(targetToken)) {
+            ui.notifications.warn("That target is not currently visible.");
+            return;
+        }
+
         setOnlyTarget(targetToken);
         ui.notifications.warn(`[QuickTarget] ${targetToken.name} has been targeted.`);
         console.log(`[QuickTarget] ${targetToken.name} has been targeted.`);
@@ -432,8 +437,24 @@ function getRangeLabel(distance, validAttacks) {
 
 function isPotentialTarget(token, selectedToken) {
     if (!token?.actor) return false;
-    if (token.id === selectedToken.id || token.document.hidden) return false;
+    if (token.id === selectedToken.id || !isTokenVisibleToCurrentUser(token)) return false;
     return true;
+}
+
+function isTokenVisibleToCurrentUser(token) {
+    if (!token?.actor || token.document?.hidden) return false;
+    if (game.user?.isGM) return true;
+    if (token.visible === false || token.isVisible === false) return false;
+
+    const visibility = canvas?.effects?.visibility ?? canvas?.visibility;
+    if (typeof visibility?.testVisibility !== "function") return token.visible !== false;
+
+    try {
+        const tolerance = Math.max(2, Math.min(Number(token.w || 0), Number(token.h || 0)) / 4);
+        return Boolean(visibility.testVisibility(token.center, { tolerance, object: token }));
+    } catch (_error) {
+        return token.visible !== false;
+    }
 }
 
 function getTargetCrosshairColor(token) {
@@ -442,7 +463,7 @@ function getTargetCrosshairColor(token) {
 
 function getHoveredTargetToken(sourceToken) {
     const hovered = canvas.tokens.hover ?? canvas.tokens.placeables.find(token => token.hover || token._hover);
-    if (!hovered || hovered.id === sourceToken.id || hovered.document.hidden) return null;
+    if (!hovered || hovered.id === sourceToken.id || !isTokenVisibleToCurrentUser(hovered)) return null;
     return hovered;
 }
 
