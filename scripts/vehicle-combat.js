@@ -131,10 +131,21 @@ const CREW_ABILITY_KEYS = {
     tech: "tec",
     technology: "tec"
 };
+const PRIMARY_CREW_ROLE_ABILITIES = [
+    { pattern: /\bcaptain\b/iu, ability: "cha" },
+    { pattern: /\bnavigator\b/iu, ability: "dex" },
+    { pattern: /\bfirst\s+officer\b/iu, ability: "con" },
+    { pattern: /\bsensors?\s+expert\b/iu, ability: "int" },
+    { pattern: /\bquartermaster\b/iu, ability: "wis" },
+    { pattern: /\bgunner\b/iu, ability: "str" },
+    { pattern: /\bengineer(?:ing)?\b/iu, ability: "tec" }
+];
+const VEHICLE_CREW_ABILITY_KEYS = ["str", "dex", "con", "int", "wis", "cha", "tec"];
 const processingCombatants = new Set();
 const activeProtectionEffects = new Map();
 const pendingVehicleCombatMovements = new Map();
 const pendingVehicleCombatMovementSpends = new Map();
+const vehicleCombatMovementSpendQueues = new Map();
 let protectionTicker = null;
 let lastCombatMovementWarningAt = 0;
 let activeVehicleCombatContextMenu = null;
@@ -159,6 +170,7 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
             vehicleCombatSpeedManaged: safeGetModuleSetting("vehicleCombatSpeedManaged", true),
             vehicleCombatSharedMovement: game.settings.get(MODULE_ID, "vehicleCombatSharedMovement"),
             vehicleCombatRestrictPlayerMovement: safeGetModuleSetting("vehicleCombatRestrictPlayerMovement", false),
+            vehicleCombatGmMovementCounts: safeGetModuleSetting("vehicleCombatGmMovementCounts", true),
             vehicleCombatDebug: game.settings.get(MODULE_ID, "vehicleCombatDebug"),
             vehicleOpsEnabled: safeGetModuleSetting("vehicleOpsEnabled", true),
             vehicleOpsShowFloatingMenuGM: safeGetModuleSetting("vehicleOpsShowFloatingMenuGM", true),
@@ -213,6 +225,7 @@ class FullSpeedAheadVehicleCombatConfig extends FormApplication {
         await game.settings.set(MODULE_ID, "vehicleCombatSpeedManaged", Boolean(formData.vehicleCombatSpeedManaged));
         await game.settings.set(MODULE_ID, "vehicleCombatSharedMovement", Boolean(formData.vehicleCombatSharedMovement));
         await game.settings.set(MODULE_ID, "vehicleCombatRestrictPlayerMovement", Boolean(formData.vehicleCombatRestrictPlayerMovement));
+        await game.settings.set(MODULE_ID, "vehicleCombatGmMovementCounts", Boolean(formData.vehicleCombatGmMovementCounts));
         await game.settings.set(MODULE_ID, "vehicleCombatDebug", Boolean(formData.vehicleCombatDebug));
         await safeSetModuleSetting("vehicleOpsEnabled", Boolean(formData.vehicleOpsEnabled));
         await safeSetModuleSetting("vehicleOpsShowFloatingMenuGM", Boolean(formData.vehicleOpsShowFloatingMenuGM));
@@ -321,6 +334,14 @@ Hooks.once("init", () => {
         config: false
     });
 
+    registerVehicleCombatSetting("vehicleCombatGmMovementCounts", {
+        name: "GM Ship movement counts against movement",
+        hint: "When enabled, ship movement performed by the GM spends the vessel's shared combat movement. GM movement is never restricted.",
+        type: Boolean,
+        default: true,
+        config: false
+    });
+
     registerVehicleCombatSetting("vehicleShieldAutomation", {
         name: "Automatically Manage Vehicle Shields",
         hint: "Ships that have Shield Generators, or Morphogenetic Fields, will automatically have shields drawn so long as they are equipped and contain HP, once the HP runs to 0, the shield will be removed. Shields will also be restored upon healing and repair.",
@@ -381,8 +402,11 @@ Hooks.on("updateCombat", (combat, changes) => {
     const changed = changes ?? {};
     const movementChanged = Boolean(foundry.utils.getProperty(changed, `flags.${MODULE_ID}.${VEHICLE_COMBAT_MOVEMENT_FLAG}`));
     const turnChanged = Object.prototype.hasOwnProperty.call(changed, "round") || Object.prototype.hasOwnProperty.call(changed, "turn");
-    if (turnChanged || movementChanged) {
+    if (turnChanged) {
         clearPendingVehicleCombatMovementForCombat(combat);
+        ui.combat?.render(true);
+    } else if (movementChanged) {
+        reconcileAcknowledgedVehicleCombatMovementSpends(combat);
         ui.combat?.render(true);
     }
     if (turnChanged && game.user?.isGM) {
@@ -398,9 +422,9 @@ Hooks.on("updateToken", tokenDocument => {
 });
 Hooks.on("deleteToken", tokenDocument => stopProtectionEffectForToken(tokenDocument.id));
 Hooks.on("updateActor", actor => syncVehicleShieldsForActor(actor));
-Hooks.on("createItem", item => syncVehicleShieldsForItem(item));
-Hooks.on("updateItem", item => syncVehicleShieldsForItem(item));
-Hooks.on("deleteItem", item => syncVehicleShieldsForItem(item));
+Hooks.on("createItem", item => syncVehicleShieldItemAndTracker(item));
+Hooks.on("updateItem", item => syncVehicleShieldItemAndTracker(item));
+Hooks.on("deleteItem", item => syncVehicleShieldItemAndTracker(item));
 
 function registerVehicleCombatSetting(key, data) {
     game.settings.register(MODULE_ID, key, {
@@ -470,6 +494,10 @@ function isVehicleCombatSharedMovementEnabled() {
 
 function isVehicleCombatPlayerMovementRestricted() {
     return Boolean(safeGetModuleSetting("vehicleCombatRestrictPlayerMovement", false));
+}
+
+function doesVehicleCombatGmMovementCount() {
+    return Boolean(safeGetModuleSetting("vehicleCombatGmMovementCounts", true));
 }
 
 function getStartedCombatForScene(scene, combatOverride = null) {
@@ -545,15 +573,19 @@ async function recordVehicleCombatMovement(tokenDocument, changes, options = {},
     if (measuredDistance <= 0) return;
 
     if (!game.user.isGM) {
-        addPendingVehicleCombatMovementSpend(state, measuredDistance);
+        const requestId = addPendingVehicleCombatMovementSpend(state, measuredDistance);
         game.socket?.emit?.(`module.${MODULE_ID}`, {
             type: "vehicleCombatMovementSpend",
+            requestId,
+            userId: game.user.id,
             tokenUuid: tokenDocument.uuid,
             combatId: state.combat.id,
             distance: measuredDistance
         });
         return;
     }
+
+    if (!doesVehicleCombatGmMovementCount()) return;
 
     try {
         await persistVehicleCombatMovementSpend(state, measuredDistance, tokenDocument);
@@ -569,15 +601,40 @@ async function recordVehicleCombatMovement(tokenDocument, changes, options = {},
 }
 
 async function handleVehicleCombatSocket(message) {
-    if (!game.user.isGM) return;
+    if (message?.type === "vehicleCombatMovementAck") {
+        if (message.userId === game.user.id) acknowledgePendingVehicleCombatMovementSpend(message);
+        return;
+    }
     if (message?.type !== "vehicleCombatMovementSpend") return;
+    if (!game.user.isGM) return;
     const combat = game.combats?.get(message.combatId);
     if (!combat) return;
     const tokenDocument = await fromUuid(message.tokenUuid);
     const state = getCombatMovementStateForTokenOrActor(tokenDocument, combat);
     const distance = Math.max(0, Number(message.distance) || 0);
     if (!state || distance <= 0) return;
-    await persistVehicleCombatMovementSpend(state, distance, tokenDocument);
+    const queueKey = getPendingVehicleCombatMovementKey(combat, state.vehicleKey);
+    const previous = vehicleCombatMovementSpendQueues.get(queueKey) ?? Promise.resolve();
+    const queued = previous
+        .catch(() => undefined)
+        .then(async () => {
+            const currentState = getCombatMovementStateForTokenOrActor(tokenDocument, combat);
+            if (!currentState) return;
+            const available = await persistVehicleCombatMovementSpend(currentState, distance, tokenDocument);
+            game.socket?.emit?.(`module.${MODULE_ID}`, {
+                type: "vehicleCombatMovementAck",
+                requestId: message.requestId,
+                userId: message.userId,
+                combatId: combat.id,
+                vehicleKey: currentState.vehicleKey,
+                available
+            });
+        })
+        .catch(error => debugVehicleCombat("Could not process queued vehicle combat movement.", error))
+        .finally(() => {
+            if (vehicleCombatMovementSpendQueues.get(queueKey) === queued) vehicleCombatMovementSpendQueues.delete(queueKey);
+        });
+    vehicleCombatMovementSpendQueues.set(queueKey, queued);
 }
 
 async function persistVehicleCombatMovementSpend(state, distance, tokenDocument = null) {
@@ -593,6 +650,7 @@ async function persistVehicleCombatMovementSpend(state, distance, tokenDocument 
     await state.combat.setFlag(MODULE_ID, VEHICLE_COMBAT_MOVEMENT_FLAG, ledger);
     refreshCombatMovementDisplays();
     debugVehicleCombat(`Spent ${distance} ${getSceneDistanceUnit(tokenDocument?.parent)} of ${state.vehicleName} movement`, ledger.vehicles[state.vehicleKey]);
+    return nextAvailable;
 }
 
 function shouldManageVehicleCombatMovement(tokenDocument, changes, options = {}) {
@@ -667,14 +725,53 @@ function getPendingVehicleCombatMovementKey(combat, vehicleKey) {
 }
 
 function getPendingVehicleCombatMovementSpend(combat, vehicleKey) {
-    return Number(pendingVehicleCombatMovementSpends.get(getPendingVehicleCombatMovementKey(combat, vehicleKey)) || 0);
+    const pending = pendingVehicleCombatMovementSpends.get(getPendingVehicleCombatMovementKey(combat, vehicleKey));
+    if (Array.isArray(pending?.requests)) {
+        return pending.requests.reduce((total, request) => total + Math.max(0, Number(request?.distance) || 0), 0);
+    }
+    return Math.max(0, Number(pending?.distance ?? pending) || 0);
 }
 
 function addPendingVehicleCombatMovementSpend(state, distance) {
     const key = getPendingVehicleCombatMovementKey(state.combat, state.vehicleKey);
-    const current = Number(pendingVehicleCombatMovementSpends.get(key) || 0);
-    pendingVehicleCombatMovementSpends.set(key, Math.max(0, current + Math.max(0, Number(distance) || 0)));
+    const spent = Math.max(0, Number(distance) || 0);
+    const requestId = foundry.utils.randomID();
+    const pending = pendingVehicleCombatMovementSpends.get(key);
+    const requests = Array.isArray(pending?.requests) ? [...pending.requests] : [];
+    requests.push({ id: requestId, distance: spent });
+    pendingVehicleCombatMovementSpends.set(key, { requests });
     refreshCombatMovementDisplays();
+    return requestId;
+}
+
+function acknowledgePendingVehicleCombatMovementSpend(message) {
+    const key = `${message.combatId ?? "combat"}:${message.vehicleKey ?? ""}`;
+    const pending = pendingVehicleCombatMovementSpends.get(key);
+    if (!Array.isArray(pending?.requests)) return;
+    const requests = pending.requests.map(request => request.id === message.requestId
+        ? { ...request, acknowledgedAvailable: Math.max(0, Number(message.available) || 0) }
+        : request);
+    pendingVehicleCombatMovementSpends.set(key, { requests });
+    const combat = game.combats?.get(message.combatId);
+    if (combat) reconcileAcknowledgedVehicleCombatMovementSpends(combat);
+    refreshCombatMovementDisplays();
+}
+
+function reconcileAcknowledgedVehicleCombatMovementSpends(combat) {
+    const prefix = `${combat?.id ?? ""}:`;
+    const ledger = getCombatMovementLedger(combat);
+    for (const [key, pending] of pendingVehicleCombatMovementSpends.entries()) {
+        if (!key.startsWith(prefix) || !Array.isArray(pending?.requests)) continue;
+        const vehicleKey = key.slice(prefix.length);
+        const authoritativeAvailable = Number(ledger.vehicles[vehicleKey]?.available);
+        if (!Number.isFinite(authoritativeAvailable)) continue;
+        const requests = pending.requests.filter(request => {
+            const acknowledgedAvailable = Number(request?.acknowledgedAvailable);
+            return !Number.isFinite(acknowledgedAvailable) || authoritativeAvailable > acknowledgedAvailable + 0.01;
+        });
+        if (requests.length) pendingVehicleCombatMovementSpends.set(key, { requests });
+        else pendingVehicleCombatMovementSpends.delete(key);
+    }
 }
 
 function clearPendingVehicleCombatMovementForCombat(combat) {
@@ -989,6 +1086,11 @@ function getVehicleProtectionStatus(actor, tokenDocument = null) {
     };
 }
 
+function syncVehicleShieldItemAndTracker(item) {
+    syncVehicleShieldsForItem(item);
+    if (isVehicleShieldItem(item)) ui.combat?.render(true);
+}
+
 function getVehicleShieldStatus(actor) {
     const shieldModule = findVehicleShieldGenerator(actor);
     if (!shieldModule) return { online: false, reason: "missing" };
@@ -1059,6 +1161,20 @@ function getItemHpInfo(item) {
     }
 
     return { hp: 0, hasHp: false };
+}
+
+function getItemMaxHp(item) {
+    const candidates = [
+        "system.hp.max",
+        "system.hp.maximum",
+        "system.uses.max",
+        "data.data.hp.max"
+    ];
+    for (const path of candidates) {
+        const value = Number(foundry.utils.getProperty(item, path));
+        if (Number.isFinite(value) && value > 0) return value;
+    }
+    return 0;
 }
 
 function syncBuiltInProtectionEffect(token, protection) {
@@ -1450,14 +1566,17 @@ async function replaceVehicleCombatantWithCrew(combatant) {
         const createData = [];
 
         for (const { row, actor } of roster) {
+            const generatedAbility = actor ? null : getGeneratedCrewAbility(vehicle, row);
             const crewFlag = {
                 ...getCrewCombatantFlag(vehicle, token, row),
-                artificial: !actor
+                artificial: !actor,
+                ...(generatedAbility ?? {})
             };
             const existing = actor ? findExistingActorCombatant(combatant.combat, actor, combatant.id, usedExistingCombatantIds) : null;
             if (existing) {
                 usedExistingCombatantIds.add(existing.id);
                 await existing.update({
+                    name: getActorPrototypeTokenName(actor),
                     [`flags.${MODULE_ID}.${CREW_COMBATANT_FLAG}`]: crewFlag
                 }, { fullSpeedAheadCrew: true });
                 continue;
@@ -1468,7 +1587,7 @@ async function replaceVehicleCombatantWithCrew(combatant) {
                 tokenId: null,
                 hidden: combatant.hidden,
                 initiative: null,
-                name: actor?.name ?? row.name,
+                name: actor ? getActorPrototypeTokenName(actor) : row.name,
                 img: actor?.img ?? DEFAULT_SILHOUETTE,
                 flags: {
                     [MODULE_ID]: {
@@ -1599,6 +1718,38 @@ function getCrewCombatantFlag(vehicle, token, row) {
     };
 }
 
+function getGeneratedCrewAbility(vehicle, row) {
+    const abilityKey = resolveGeneratedCrewAbilityKey(vehicle, row);
+    const abilityScore = getActorAbilityScore(vehicle, abilityKey) ?? 10;
+    return {
+        ability: abilityKey.toUpperCase(),
+        abilityKey,
+        abilityScore,
+        abilityModifier: Math.floor((abilityScore - 10) / 2)
+    };
+}
+
+function resolveGeneratedCrewAbilityKey(vehicle, row) {
+    const role = String(row?.role ?? "").normalize("NFKC").trim();
+    const roleAbility = PRIMARY_CREW_ROLE_ABILITIES.find(entry => entry.pattern.test(role))?.ability;
+    if (roleAbility) return roleAbility;
+
+    const explicitAbility = normalizeCrewAbilityKey(row?.ability);
+    if (explicitAbility) return explicitAbility;
+
+    const seed = `${vehicle?.uuid ?? vehicle?.id ?? vehicle?.name ?? "vehicle"}:${row?.sourcePath ?? "crew"}:${row?.index ?? 0}:${row?.name ?? "crew"}`;
+    return VEHICLE_CREW_ABILITY_KEYS[stableCrewAbilityIndex(seed, VEHICLE_CREW_ABILITY_KEYS.length)];
+}
+
+function stableCrewAbilityIndex(value, length) {
+    let hash = 2166136261;
+    for (const character of String(value ?? "")) {
+        hash ^= character.codePointAt(0);
+        hash = Math.imul(hash, 16777619);
+    }
+    return Math.abs(hash >>> 0) % Math.max(1, length);
+}
+
 async function grantCrewVehicleOwnership(combat, vehicle, matched) {
     const ownershipFlags = foundry.utils.deepClone(combat.getFlag(MODULE_ID, VEHICLE_COMBAT_OWNERSHIP_FLAG) ?? {});
     if (!ownershipFlags[vehicle.uuid]) {
@@ -1653,9 +1804,9 @@ function renderVehicleCrewTracker(app, html) {
         });
         if (data.artificial) row.addClass("full-speed-ahead-crew-artificial");
 
-        const crewName = combatant.name || "Crew";
+        const crewName = getCrewCombatantDisplayName(combatant, data);
         row.find(".full-speed-ahead-combat-row").remove();
-        const controls = detachCombatantControls(row);
+        const controls = detachCombatantControls(row, combatant);
         row.empty().append(buildVehicleCombatantRow({ combatant, data, crewName, controls, hideUnmatchedCrewPhotos }));
 
         row.off("dblclick.fullSpeedAheadVehicleCombat").on("dblclick.fullSpeedAheadVehicleCombat", () => {
@@ -1665,11 +1816,12 @@ function renderVehicleCrewTracker(app, html) {
             token.control({ releaseOthers: true });
         });
 
-        row.find(".full-speed-ahead-combat-ship").off("dblclick.fullSpeedAheadVehicleCombat").on("dblclick.fullSpeedAheadVehicleCombat", async event => {
+        const shipPortrait = row.find(".full-speed-ahead-combat-ship").get(0);
+        shipPortrait?.addEventListener("dblclick", event => {
             event.preventDefault();
-            event.stopPropagation();
-            await openCrewVehicleSheet(data);
-        });
+            event.stopImmediatePropagation();
+            void openCrewVehicleSheet(data);
+        }, { capture: true });
 
         row.off("contextmenu.fullSpeedAheadVehicleCombat").on("contextmenu.fullSpeedAheadVehicleCombat", event => {
             event.preventDefault();
@@ -1678,7 +1830,19 @@ function renderVehicleCrewTracker(app, html) {
         });
 
         row.find(".full-speed-ahead-combat-initiative").off("click.fullSpeedAheadVehicleCombat");
+        if (data.artificial) bindGeneratedCrewInitiativeControls(row, combatant);
 
+    }
+}
+
+function bindGeneratedCrewInitiativeControls(row, combatant) {
+    const selector = ".combatant-control[data-control='rollInitiative'], [data-action='rollInitiative']";
+    for (const control of row.find(selector).toArray()) {
+        control.addEventListener("click", event => {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            void rerollVehicleCrewInitiative(combatant);
+        }, { capture: true, once: true });
     }
 }
 
@@ -1717,8 +1881,10 @@ function buildVehicleCombatantRow({ combatant, data, crewName, controls, hideUnm
     const row = $(`<div class="full-speed-ahead-combat-row ${hideCrewPhoto ? "full-speed-ahead-combat-row-no-crew-photo" : ""}"></div>`);
     const movement = getCombatMovementStateForCrewData(data);
     const movementBar = buildVehicleMovementBar(movement);
+    const shieldBar = buildVehicleShieldBar(getVehicleShieldTrackerState(data));
 
     const vessel = $(`<div class="full-speed-ahead-combat-vessel">
+        ${shieldBar}
         <img class="full-speed-ahead-combat-ship" src="${escapeHtml(data.vehicleImg)}" alt="${escapeHtml(data.vehicleName)}">
         ${movementBar}
     </div>`);
@@ -1740,10 +1906,20 @@ function buildVehicleCombatantRow({ combatant, data, crewName, controls, hideUnm
 }
 
 function buildVehicleCombatantInitiative(combatant) {
-    const raw = Number(combatant?.initiative);
-    const label = Number.isFinite(raw) ? raw.toFixed(2).replace(/\.?0+$/u, "") : "-";
+    const hasInitiative = combatant?.initiative !== null && combatant?.initiative !== undefined && combatant?.initiative !== "";
+    const raw = hasInitiative ? Number(combatant.initiative) : Number.NaN;
+    const label = Number.isFinite(raw) ? raw.toFixed(2) : "";
     const title = game.user.isGM ? "Right-click row for combatant actions." : "Initiative";
     return $(`<div class="full-speed-ahead-combat-initiative" title="${escapeHtml(title)}">${escapeHtml(label)}</div>`);
+}
+
+function getActorPrototypeTokenName(actor) {
+    return String(actor?.prototypeToken?.name ?? actor?.name ?? "Crew").trim() || "Crew";
+}
+
+function getCrewCombatantDisplayName(combatant, data) {
+    if (!data?.artificial && combatant?.actor) return getActorPrototypeTokenName(combatant.actor);
+    return String(combatant?.name ?? "Crew").trim() || "Crew";
 }
 
 function closeVehicleCrewContextMenu() {
@@ -1821,6 +1997,20 @@ async function rerollVehicleCrewInitiative(combatant) {
     if (!combatant || !game.user.isGM) return;
     const combat = combatant.combat;
     if (!combat) return;
+    const crewData = combatant.getFlag(MODULE_ID, CREW_COMBATANT_FLAG);
+    if (crewData?.artificial) {
+        const modifier = Number(crewData.abilityModifier) || 0;
+        const formula = `1d20 ${modifier >= 0 ? "+" : "-"} ${Math.abs(modifier)}`;
+        const roll = new Roll(formula);
+        await roll.evaluate({ async: true });
+        await combatant.update({ initiative: Number(roll.total) });
+        await roll.toMessage({
+            speaker: ChatMessage.getSpeaker({ alias: combatant.name }),
+            flavor: `${combatant.name} Initiative (${String(crewData.abilityKey ?? crewData.ability ?? "").toUpperCase()})`
+        });
+        ui.combat?.render(true);
+        return;
+    }
     if (typeof combat.rollInitiative === "function") {
         await combat.rollInitiative([combatant.id], { updateTurn: true });
     } else {
@@ -1859,8 +2049,42 @@ function buildVehicleMovementBar(state) {
     </div>`;
 }
 
-function detachCombatantControls(row) {
+function getVehicleShieldTrackerState(data) {
+    const actor = resolveCrewVehicleToken(data)?.actor
+        ?? (data?.vehicleActorId ? game.actors?.get(data.vehicleActorId) : null);
+    const shield = findVehicleShieldGenerator(actor);
+    if (!shield || shield.system?.equipped !== true) return null;
+    const { hp, hasHp } = getItemHpInfo(shield);
+    const max = getItemMaxHp(shield);
+    if (!hasHp || max <= 0) return null;
+    return {
+        hp: clampVehicleCombatNumber(hp, 0, max, 0),
+        max,
+        name: shield.name || "Shield Generator"
+    };
+}
+
+function buildVehicleShieldBar(state) {
+    if (!state) return `<div class="full-speed-ahead-shield-bar-placeholder" aria-hidden="true"></div>`;
+    const percent = clampVehicleCombatNumber(state.hp / state.max, 0, 1, 0);
+    const label = `${Math.round(state.hp * 10) / 10} / ${Math.round(state.max * 10) / 10} HP`;
+    return `<div class="full-speed-ahead-shield-bar" title="${escapeHtml(state.name)}: ${escapeHtml(label)}">
+        <div class="full-speed-ahead-shield-fill" style="--fsa-shield-percent: ${percent * 100}%;"></div>
+    </div>`;
+}
+
+function detachCombatantControls(row, combatant) {
     const controls = row.find(".token-initiative").detach();
+    controls.find(".initiative, .initiative-score, [data-initiative]").remove();
+    controls.contents().filter(function () {
+        return this.nodeType === Node.TEXT_NODE && this.textContent.trim();
+    }).remove();
+    if (combatant?.initiative !== null && combatant?.initiative !== undefined && combatant?.initiative !== "") {
+        controls.find(".combatant-control[data-control='rollInitiative'], [data-action='rollInitiative']").remove();
+    }
+    controls.filter(function () {
+        return !$(this).children().length && !$(this).text().trim();
+    }).remove();
     row.find(".combatant-controls").remove();
     return controls;
 }
