@@ -14,7 +14,7 @@
     align-items: center;
     display: grid !important;
     gap: 7px;
-    grid-template-columns: 56px 42px minmax(0, 1fr) 42px max-content;
+    grid-template-columns: 56px 42px minmax(0, 1fr) 54px;
     min-height: 60px;
     padding: 5px 7px;
     width: 100%;
@@ -23,7 +23,7 @@
 .full-speed-ahead-combat-row-no-crew-photo,
 #combat-tracker .full-speed-ahead-combat-row-no-crew-photo,
 .combat-tracker .full-speed-ahead-combat-row-no-crew-photo {
-    grid-template-columns: 56px minmax(0, 1fr) 42px max-content;
+    grid-template-columns: 56px minmax(0, 1fr) 54px;
 }
 
 .full-speed-ahead-combat-vessel,
@@ -180,55 +180,50 @@
     white-space: nowrap;
 }
 
-.full-speed-ahead-combat-initiative,
-#combat-tracker .full-speed-ahead-combat-initiative,
-.combat-tracker .full-speed-ahead-combat-initiative {
-    background: transparent;
-    border: 0;
-    box-shadow: none;
-    color: #f5f2df;
-    font-size: 14px;
-    font-weight: 800;
-    line-height: 1;
-    margin: 0;
-    min-height: 22px;
-    padding: 0;
-    text-align: right;
-    text-shadow: 0 2px 4px #000;
-    width: 42px;
-}
-
-.full-speed-ahead-combat-controls,
-#combat-tracker .full-speed-ahead-combat-controls,
-.combat-tracker .full-speed-ahead-combat-controls {
+.full-speed-ahead-combat-native-initiative,
+#combat-tracker .full-speed-ahead-combat-native-initiative,
+.combat-tracker .full-speed-ahead-combat-native-initiative {
     align-items: center;
     display: flex;
-    flex-direction: column;
-    gap: 3px;
-    justify-content: center;
-    min-width: 30px;
+    justify-content: flex-end;
+    min-width: 0;
+    width: 54px;
 }
 
-.full-speed-ahead-combat-controls:empty,
-#combat-tracker .full-speed-ahead-combat-controls:empty,
-.combat-tracker .full-speed-ahead-combat-controls:empty {
+.full-speed-ahead-combat-native-initiative:empty,
+#combat-tracker .full-speed-ahead-combat-native-initiative:empty,
+.combat-tracker .full-speed-ahead-combat-native-initiative:empty {
     display: none;
 }
 
-.full-speed-ahead-combat-controls .token-initiative,
-.full-speed-ahead-combat-controls .combatant-controls,
-#combat-tracker .full-speed-ahead-combat-controls .token-initiative,
-#combat-tracker .full-speed-ahead-combat-controls .combatant-controls,
-.combat-tracker .full-speed-ahead-combat-controls .token-initiative,
-.combat-tracker .full-speed-ahead-combat-controls .combatant-controls {
+.full-speed-ahead-combat-native-initiative .token-initiative,
+#combat-tracker .full-speed-ahead-combat-native-initiative .token-initiative,
+.combat-tracker .full-speed-ahead-combat-native-initiative .token-initiative {
     align-items: center;
     color: #f5f2df;
     display: flex;
     flex: 0 0 auto;
     gap: 4px;
+    justify-content: flex-end;
     margin: 0;
     position: static !important;
     text-shadow: 0 1px 3px #000;
+    width: 100%;
+}
+
+.full-speed-ahead-combat-native-initiative .initiative,
+.full-speed-ahead-combat-native-initiative .initiative-score,
+.full-speed-ahead-combat-native-initiative [data-initiative],
+#combat-tracker .full-speed-ahead-combat-native-initiative .initiative,
+#combat-tracker .full-speed-ahead-combat-native-initiative .initiative-score,
+#combat-tracker .full-speed-ahead-combat-native-initiative [data-initiative],
+.combat-tracker .full-speed-ahead-combat-native-initiative .initiative,
+.combat-tracker .full-speed-ahead-combat-native-initiative .initiative-score,
+.combat-tracker .full-speed-ahead-combat-native-initiative [data-initiative] {
+    margin: 0;
+    position: static !important;
+    text-align: right;
+    width: auto;
 }
 
 .full-speed-ahead-crew-combatant.full-speed-ahead-crew-artificial .full-speed-ahead-combat-crew,

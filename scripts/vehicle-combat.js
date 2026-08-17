@@ -556,6 +556,8 @@ function guardVehicleCombatMovement(tokenDocument, changes, options = {}) {
 }
 
 async function recordVehicleCombatMovement(tokenDocument, changes, options = {}, userId = null) {
+    // Only the client which moved the token measures that drag. Players report
+    // the distance once; the GM writes the single authoritative Combat ledger.
     if (userId && userId !== game.user.id) return;
     const gate = getVehicleCombatMovementGate(tokenDocument, changes, options);
     if (!gate.allowed) return;
@@ -572,11 +574,10 @@ async function recordVehicleCombatMovement(tokenDocument, changes, options = {},
             : measureTokenDocumentMovement(tokenDocument, changes);
     if (measuredDistance <= 0) return;
 
-    if (!game.user.isGM) {
-        const requestId = addPendingVehicleCombatMovementSpend(state, measuredDistance);
+    const movingUser = userId ? game.users?.get(userId) : null;
+    if (!game.user?.isGM) {
         game.socket?.emit?.(`module.${MODULE_ID}`, {
             type: "vehicleCombatMovementSpend",
-            requestId,
             userId: game.user.id,
             tokenUuid: tokenDocument.uuid,
             combatId: state.combat.id,
@@ -584,20 +585,22 @@ async function recordVehicleCombatMovement(tokenDocument, changes, options = {},
         });
         return;
     }
+    if (movingUser?.isGM && !doesVehicleCombatGmMovementCount()) return;
 
-    if (!doesVehicleCombatGmMovementCount()) return;
-
-    try {
-        await persistVehicleCombatMovementSpend(state, measuredDistance, tokenDocument);
-    } catch (error) {
-        debugVehicleCombat("Could not persist vehicle combat movement.", error);
-        game.socket?.emit?.(`module.${MODULE_ID}`, {
-            type: "vehicleCombatMovementSpend",
-            tokenUuid: tokenDocument.uuid,
-            combatId: state.combat.id,
-            distance: measuredDistance
+    const queueKey = getPendingVehicleCombatMovementKey(state.combat, state.vehicleKey);
+    const previous = vehicleCombatMovementSpendQueues.get(queueKey) ?? Promise.resolve();
+    const queued = previous
+        .catch(() => undefined)
+        .then(async () => {
+            const currentState = getCombatMovementStateForTokenOrActor(tokenDocument, state.combat);
+            if (!currentState) return;
+            await persistVehicleCombatMovementSpend(currentState, measuredDistance, tokenDocument);
+        })
+        .catch(error => debugVehicleCombat("Could not persist vehicle combat movement.", error))
+        .finally(() => {
+            if (vehicleCombatMovementSpendQueues.get(queueKey) === queued) vehicleCombatMovementSpendQueues.delete(queueKey);
         });
-    }
+    vehicleCombatMovementSpendQueues.set(queueKey, queued);
 }
 
 async function handleVehicleCombatSocket(message) {
@@ -884,6 +887,25 @@ async function recoverVehicleCombatMovementForTurn(combat) {
     ledger.lastRecoveryTurnKey = turnKey;
 
     let changed = false;
+    for (const combatant of combat.combatants ?? []) {
+        const data = combatant.getFlag(MODULE_ID, CREW_COMBATANT_FLAG);
+        if (!data) continue;
+        const actor = resolveCrewVehicleActorSync(data);
+        if (!isVehicleActor(actor)) continue;
+        const identity = getVehicleCombatMovementIdentityFromCrewData(data, actor);
+        if (!identity.key || ledger.vehicles[identity.key]) continue;
+        const speed = getVehicleCombatSpeed(actor);
+        if (speed <= 0) continue;
+        ledger.vehicles[identity.key] = {
+            speed,
+            recovery: getVehicleCombatRecovery(actor, speed),
+            available: speed,
+            updatedRound: Number(combat.round) || 0,
+            vehicleName: identity.name
+        };
+        changed = true;
+    }
+
     for (const entry of Object.values(ledger.vehicles)) {
         const speed = Math.max(0, Number(entry?.speed) || 0);
         if (speed <= 0) continue;
@@ -901,6 +923,11 @@ async function recoverVehicleCombatMovementForTurn(combat) {
     // Save the turn marker even while every pool is full so a repeated hook cannot recover twice.
     await combat.setFlag(MODULE_ID, VEHICLE_COMBAT_MOVEMENT_FLAG, ledger);
     if (changed) refreshCombatMovementDisplays();
+}
+
+function resolveCrewVehicleActorSync(data) {
+    const token = data?.vehicleTokenId ? canvas?.tokens?.get(data.vehicleTokenId) : null;
+    return token?.actor ?? (data?.vehicleActorId ? game.actors?.get(data.vehicleActorId) : null) ?? null;
 }
 
 function parseMovementNumber(value) {
@@ -1758,10 +1785,10 @@ async function grantCrewVehicleOwnership(combat, vehicle, matched) {
 
     const ownership = foundry.utils.deepClone(vehicle.ownership);
     for (const { actor } of matched) {
-        for (const [userId, level] of Object.entries(actor.ownership ?? {})) {
-            if (userId !== "default" && Number(level) >= CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER) {
-                ownership[userId] = CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
-            }
+        if (!actor) continue;
+        for (const user of game.users ?? []) {
+            if (user.isGM || !actor.testUserPermission?.(user, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER)) continue;
+            ownership[user.id] = CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
         }
     }
 
@@ -1829,7 +1856,6 @@ function renderVehicleCrewTracker(app, html) {
             showVehicleCrewContextMenu(event, combatant, data);
         });
 
-        row.find(".full-speed-ahead-combat-initiative").off("click.fullSpeedAheadVehicleCombat");
         if (data.artificial) bindGeneratedCrewInitiativeControls(row, combatant);
 
     }
@@ -1900,17 +1926,8 @@ function buildVehicleCombatantRow({ combatant, data, crewName, controls, hideUnm
         <div class="full-speed-ahead-combat-ship-name">${escapeHtml(data.vehicleName)}</div>
         <div class="full-speed-ahead-combat-role">${escapeHtml(data.role || "Crew")}</div>
     </div>`);
-    row.append(buildVehicleCombatantInitiative(combatant));
-    row.append($(`<div class="full-speed-ahead-combat-controls"></div>`).append(controls));
+    row.append($(`<div class="full-speed-ahead-combat-native-initiative"></div>`).append(controls));
     return row;
-}
-
-function buildVehicleCombatantInitiative(combatant) {
-    const hasInitiative = combatant?.initiative !== null && combatant?.initiative !== undefined && combatant?.initiative !== "";
-    const raw = hasInitiative ? Number(combatant.initiative) : Number.NaN;
-    const label = Number.isFinite(raw) ? raw.toFixed(2) : "";
-    const title = game.user.isGM ? "Right-click row for combatant actions." : "Initiative";
-    return $(`<div class="full-speed-ahead-combat-initiative" title="${escapeHtml(title)}">${escapeHtml(label)}</div>`);
 }
 
 function getActorPrototypeTokenName(actor) {
@@ -2075,13 +2092,6 @@ function buildVehicleShieldBar(state) {
 
 function detachCombatantControls(row, combatant) {
     const controls = row.find(".token-initiative").detach();
-    controls.find(".initiative, .initiative-score, [data-initiative]").remove();
-    controls.contents().filter(function () {
-        return this.nodeType === Node.TEXT_NODE && this.textContent.trim();
-    }).remove();
-    if (combatant?.initiative !== null && combatant?.initiative !== undefined && combatant?.initiative !== "") {
-        controls.find(".combatant-control[data-control='rollInitiative'], [data-action='rollInitiative']").remove();
-    }
     controls.filter(function () {
         return !$(this).children().length && !$(this).text().trim();
     }).remove();
